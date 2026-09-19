@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+backend/.venv/
+.venv/
+venv/
+ENV/
+.pytest_cache/
+
+# Datos locales de audio y SQLite
+*.db
+*.db-journal
+data/
+backend/data/*.db
+backend/data/*.db-journal
+backend/data/uploads/*
+!backend/data/uploads/.gitkeep
+backend/data/stems/*
+!backend/data/stems/.gitkeep
+output/
+
+# Flutter & Dart
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.packages
+mobile/build/
+mobile/.pub-cache/
+mobile/.pub/
+
+# Android
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/android/**/build/
+mobile/android/app/build/
+
+# Sistema y Entorno
+.DS_Store
+.env
+*.log
