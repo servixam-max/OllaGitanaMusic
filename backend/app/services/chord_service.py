@@ -33,24 +33,26 @@ class ChordService:
         """
         Busca canciones y acordes en fuentes abiertas (Songsterr API).
         """
-        url = f"https://www.songsterr.com/a/ra/songs.json?pattern={query}"
+        url = "https://www.songsterr.com/api/songs"
+        params = {"pattern": query}
+        headers = {"User-Agent": "OllaGitanaMusic/1.0"}
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:
-                resp = await client.get(url)
+                resp = await client.get(url, params=params, headers=headers)
                 if resp.status_code == 200:
                     data = resp.json()
                     results = []
-                    for item in data[:10]:
-                        artist = item.get("artist", {}).get("name", "Desconocido")
+                    for item in data[:15]:
+                        artist = item.get("artist", "Desconocido")
                         title = item.get("title", "Sin título")
-                        song_id = item.get("id")
+                        song_id = item.get("songId")
                         results.append({
                             "source": "Songsterr",
                             "id": song_id,
                             "title": title,
                             "artist": artist,
-                            "url": f"https://www.songsterr.com/a/wsa/{artist.lower().replace(' ', '-')}-{title.lower().replace(' ', '-')}-tab-s{song_id}",
-                            "has_chords": True
+                            "url": f"https://www.songsterr.com/a/wa/song?id={song_id}",
+                            "has_chords": item.get("hasChords", True)
                         })
                     return results
                 return []
