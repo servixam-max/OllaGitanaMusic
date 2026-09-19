@@ -1,5 +1,7 @@
 # 🎸 Olla Gitana Music
 
+Repositorio oficial en GitHub: **[github.com/servixam-max/OllaGitanaMusic](https://github.com/servixam-max/OllaGitanaMusic)**
+
 Aplicación móvil integral para Android (APK) y Backend autoalojado en Docker para el grupo musical **Olla Gitana**. Diseñada específicamente para ensayos en directo, gestión de repertorio democrático, separación de instrumentos y consulta de letras y acordes en escenarios.
 
 ---
