@@ -147,6 +147,54 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
       ),
       body: Column(
         children: [
+          // Banner de la Banda "Olla Gitana"
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: Stack(
+                children: [
+                  Image.asset(
+                    "assets/images/band_hero.jpg",
+                    height: 120,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                  ),
+                  Positioned.fill(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.transparent,
+                            Colors.black.withOpacity(0.85),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const Positioned(
+                    bottom: 10,
+                    left: 14,
+                    child: Text(
+                      "OLLA GITANA",
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 2.0,
+                        shadows: [
+                          Shadow(color: Colors.black, blurRadius: 4, offset: Offset(1, 1)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
           // Filtros por estado
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,

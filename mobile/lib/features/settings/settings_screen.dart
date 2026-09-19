@@ -94,6 +94,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // Cabecera con la ilustración de Olla Gitana
+            Card(
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                children: [
+                  Image.asset(
+                    "assets/images/band_hero.jpg",
+                    height: 160,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    color: StageTheme.surfaceElevated,
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.local_fire_department, color: StageTheme.flameOrange),
+                        SizedBox(width: 8),
+                        Text(
+                          "OLLA GITANA - APP OFICIAL",
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.5,
+                            color: StageTheme.amberGold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16.0),

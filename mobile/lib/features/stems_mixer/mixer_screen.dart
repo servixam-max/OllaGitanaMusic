@@ -260,10 +260,18 @@ class _MixerScreenState extends State<MixerScreen> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.tune, size: 80, color: StageTheme.flameOrange),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: Image.asset(
+                          "assets/images/band_hero.jpg",
+                          height: 140,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
                       const SizedBox(height: 16),
                       const Text(
-                        "Mezclador Multipista",
+                        "Mezclador Multipista de Ensayo",
                         style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 8),
