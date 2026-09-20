@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'core/network/api_client.dart';
 import 'core/theme/stage_theme.dart';
 import 'core/updater/app_updater.dart';
 import 'features/lyrics/lyrics_screen.dart';
@@ -8,8 +8,9 @@ import 'features/repertoire/repertoire_screen.dart';
 import 'features/events/events_screen.dart';
 import 'features/settings/settings_screen.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await ApiClient().ensureInitialized();
   runApp(const OllaGitanaApp());
 }
 
@@ -44,7 +45,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 
   void _checkUpdatesOnStartup() async {
-    await Future.delayed(const Duration(seconds: 2));
+    // Probar conectividad inicial con el backend en segundo plano
+    ApiClient().checkConnection();
+
+    await Future.delayed(const Duration(milliseconds: 1500));
     if (!mounted) return;
     final update = await AppUpdater.checkForUpdates();
     if (update != null && update["hasUpdate"] == true && mounted) {

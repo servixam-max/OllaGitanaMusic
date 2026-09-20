@@ -14,6 +14,7 @@ class ApiClient {
 
   ApiClient._internal() {
     _dio = Dio(BaseOptions(
+      baseUrl: _baseUrl,
       connectTimeout: const Duration(seconds: 8),
       receiveTimeout: const Duration(seconds: 15),
     ));
@@ -26,6 +27,19 @@ class ApiClient {
 
   String get baseUrl => _baseUrl;
   String get userName => _userName;
+
+  Future<void> ensureInitialized() async {
+    await _loadSettings();
+  }
+
+  Future<bool> checkConnection() async {
+    try {
+      final response = await _dio.get("/");
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
@@ -306,35 +320,10 @@ class ApiClient {
         "/api/v1/repertoire/songs",
         queryParameters: status != null ? {"status": status} : null,
       );
-      return response.data ?? [];
-    } catch (_) {
-      // Si el backend local no está encendido, devolver canciones demo de la banda
-      return [
-        {
-          "id": 1,
-          "title": "Entre Dos Aguas",
-          "artist": "Paco de Lucía",
-          "album": "Fuente y Caudal",
-          "cover_url": "https://e-cdns-images.dzcdn.net/images/cover/b41d0179b02a2455b85a3c94fca240f9/500x500-000000-80-0-0.jpg",
-          "preview_url": "https://cdnt-preview.dzcdn.net/api/1/1/a/7/f/0/a7f62f171996bd5b8eaf03689ceed583.mp3",
-          "status": "en_repertorio",
-          "proposed_by": "Carlos (Guitarra)",
-          "average_rating": 5.0,
-          "total_votes": 4,
-        },
-        {
-          "id": 2,
-          "title": "Volando Voy",
-          "artist": "Camarón de la Isla",
-          "album": "La Leyenda del Tiempo",
-          "cover_url": "https://e-cdns-images.dzcdn.net/images/cover/6c669e46a7ce04535870a463a56ad4a2/500x500-000000-80-0-0.jpg",
-          "preview_url": "https://cdnt-preview.dzcdn.net/api/1/1/1/6/7/0/167b5e679b392b95a8286a07997864aa.mp3",
-          "status": "para_ensayar",
-          "proposed_by": "Manuel (Cajón)",
-          "average_rating": 4.8,
-          "total_votes": 3,
-        }
-      ];
+      return response.data as List<dynamic>? ?? [];
+    } catch (e) {
+      print("[ApiClient] Error obteniendo canciones del repertorio: $e");
+      return [];
     }
   }
 

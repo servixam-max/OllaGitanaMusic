@@ -4,7 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../theme/stage_theme.dart';
 
 class AppUpdater {
-  static const String currentVersion = "v1.0.5";
+  static const String currentVersion = "v1.0.6";
   static const String repoUrl = "https://api.github.com/repos/servixam-max/OllaGitanaMusic/releases/latest";
 
   /// Comprueba semánticamente si una versión es superior a otra (ej. v1.0.5 > v1.0.4)

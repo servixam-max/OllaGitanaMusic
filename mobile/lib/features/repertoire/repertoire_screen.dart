@@ -195,6 +195,11 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
         title: const Text("Sala de Ensayo & Votaciones"),
         actions: [
           IconButton(
+            icon: const Icon(Icons.refresh, color: StageTheme.amberGold),
+            tooltip: "Recargar repertorio",
+            onPressed: () => _loadSongs(),
+          ),
+          IconButton(
             icon: const Icon(Icons.share, color: StageTheme.amberGold),
             tooltip: "Compartir repertorio por WhatsApp",
             onPressed: _shareRepertoireOnWhatsApp,
@@ -271,17 +276,43 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator(color: StageTheme.flameOrange))
                 : _songs.isEmpty
-                    ? const Center(
-                        child: Text(
-                          "No hay canciones en esta sección.\n¡Propón una nueva con el botón inferior!",
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: StageTheme.textSecondary, fontSize: 16),
+                    ? RefreshIndicator(
+                        onRefresh: () => _loadSongs(),
+                        color: StageTheme.flameOrange,
+                        child: SingleChildScrollView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          child: Padding(
+                            padding: const EdgeInsets.all(32.0),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.music_note, size: 56, color: StageTheme.textMuted),
+                                const SizedBox(height: 12),
+                                const Text(
+                                  "No hay canciones en esta sección.\n¡Propón una nueva con el botón inferior o desliza para actualizar!",
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: StageTheme.textSecondary, fontSize: 15),
+                                ),
+                                const SizedBox(height: 16),
+                                ElevatedButton.icon(
+                                  icon: const Icon(Icons.refresh),
+                                  label: const Text("Actualizar lista"),
+                                  style: ElevatedButton.styleFrom(backgroundColor: StageTheme.surfaceElevated),
+                                  onPressed: () => _loadSongs(),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                       )
-                    : ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        itemCount: _songs.length,
-                        itemBuilder: (context, index) {
+                    : RefreshIndicator(
+                        onRefresh: () => _loadSongs(),
+                        color: StageTheme.flameOrange,
+                        child: ListView.builder(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          itemCount: _songs.length,
+                          itemBuilder: (context, index) {
                           final song = _songs[index];
                           final isPlayingThis = _playingPreviewSongId == song["id"];
 
