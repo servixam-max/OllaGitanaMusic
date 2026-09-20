@@ -183,11 +183,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         final update = await AppUpdater.checkForUpdates();
                         if (update != null && update["hasUpdate"] == true) {
                           AppUpdater.showUpdateDialog(context, update);
+                        } else if (update != null && update["success"] == true) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              backgroundColor: StageTheme.electricGreen,
+                              content: Text("¡Ya tienes instalada la última versión! (${AppUpdater.currentVersion})"),
+                            ),
+                          );
                         } else {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
-                              backgroundColor: StageTheme.electricGreen,
-                              content: Text("¡Ya tienes instalada la última versión! (${AppUpdater.currentVersion})"),
+                              backgroundColor: StageTheme.alertRed,
+                              content: Text("No se pudo conectar con GitHub para comprobar. Revisa tu conexión."),
                             ),
                           );
                         }

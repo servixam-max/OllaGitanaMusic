@@ -27,11 +27,32 @@ class AppUpdater {
   /// Comprueba en GitHub Releases si hay una versión superior a la instalada
   static Future<Map<String, dynamic>?> checkForUpdates() async {
     try {
-      final dio = Dio(BaseOptions(connectTimeout: const Duration(seconds: 8)));
-      final response = await dio.get(repoUrl);
+      final dio = Dio(BaseOptions(
+        connectTimeout: const Duration(seconds: 10),
+        receiveTimeout: const Duration(seconds: 15),
+        headers: {
+          "User-Agent": "OllaGitanaMusic-App/1.0",
+          "Accept": "application/vnd.github.v3+json",
+        },
+      ));
 
+      Response response;
+      try {
+        response = await dio.get(repoUrl);
+      } catch (_) {
+        response = await dio.get("https://api.github.com/repos/servixam-max/OllaGitanaMusic/releases");
+      }
+
+      dynamic data;
       if (response.statusCode == 200) {
-        final data = response.data;
+        if (response.data is List && (response.data as List).isNotEmpty) {
+          data = response.data[0];
+        } else if (response.data is Map) {
+          data = response.data;
+        }
+      }
+
+      if (data != null) {
         final latestTag = (data["tag_name"] ?? "").toString().trim();
 
         // Buscar el archivo .apk entre los assets de la release
@@ -51,6 +72,7 @@ class AppUpdater {
         final hasUpdate = latestTag.isNotEmpty && isNewerVersion(latestTag, currentVersion);
 
         return {
+          "success": true,
           "hasUpdate": hasUpdate,
           "latestVersion": latestTag,
           "currentVersion": currentVersion,
@@ -60,8 +82,18 @@ class AppUpdater {
       }
     } catch (e) {
       print("[AppUpdater] Error comprobando actualizaciones: $e");
+      return {
+        "success": false,
+        "hasUpdate": false,
+        "currentVersion": currentVersion,
+        "error": e.toString(),
+      };
     }
-    return null;
+    return {
+      "success": false,
+      "hasUpdate": false,
+      "currentVersion": currentVersion,
+    };
   }
 
   /// Descarga el APK abriendo el navegador del teléfono para instalarlo
