@@ -8,7 +8,6 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/theme/stage_theme.dart';
-import '../../core/audio/preview_player.dart';
 import '../../core/widgets/profile_app_bar_button.dart';
 
 class RepertoireScreen extends StatefulWidget {
