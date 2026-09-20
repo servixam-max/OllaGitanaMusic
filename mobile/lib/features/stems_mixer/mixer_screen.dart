@@ -588,7 +588,7 @@ class _MixerScreenState extends State<MixerScreen> {
                                     child: const Text("Cargar"),
                                     onPressed: () {
                                       Navigator.pop(ctx);
-                                      _loadCompletedTaskStems(stems);
+                                      _loadCompletedTaskStems(t["filename"] ?? "Audio", stems);
                                     },
                                   )
                                 : null,
