@@ -457,6 +457,7 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                           );
                         },
                       ),
+                    ),
           ),
         ],
       ),
