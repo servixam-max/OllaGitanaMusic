@@ -28,6 +28,10 @@ class _MixerScreenState extends State<MixerScreen> {
   WebSocketChannel? _wsChannel;
 
   List<dynamic> _recentTasks = [];
+  String? _currentLoadedSongName;
+
+  // Estado para la barra de progreso sin tirones
+  double? _draggingPositionMs;
 
   @override
   void initState() {
@@ -65,6 +69,113 @@ class _MixerScreenState extends State<MixerScreen> {
     if (result == null || (result.files.single.path == null && result.files.single.bytes == null)) return;
     final picked = result.files.single;
 
+    if (!mounted) return;
+
+    // Diálogo de selección de modelo de separación
+    final chosenModel = await showDialog<String>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: StageTheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: const BorderSide(color: StageTheme.amberGold, width: 1.5),
+        ),
+        title: Row(
+          children: const [
+            Icon(Icons.auto_awesome, color: StageTheme.amberGold, size: 24),
+            SizedBox(width: 8),
+            Text("Separación con IA", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "Canción: ${picked.name}",
+              style: const TextStyle(fontWeight: FontWeight.bold, color: StageTheme.amberGold, fontSize: 13),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              "Elige cómo deseas separar las pistas:",
+              style: TextStyle(color: StageTheme.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            // Opción 1: 4 Pistas
+            Material(
+              color: StageTheme.surfaceElevated,
+              borderRadius: BorderRadius.circular(12),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => Navigator.pop(ctx, "htdemucs"),
+                child: Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: Row(
+                    children: [
+                      const CircleAvatar(
+                        backgroundColor: StageTheme.amberGold,
+                        foregroundColor: Colors.black,
+                        child: Icon(Icons.music_note),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: const [
+                            Text("4 Pistas Estándar", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                            Text("Voz, Batería, Bajo, Guitarras/Otros", style: TextStyle(color: StageTheme.textSecondary, fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, color: StageTheme.amberGold),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            // Opción 2: 6 Pistas
+            Material(
+              color: StageTheme.surfaceElevated,
+              borderRadius: BorderRadius.circular(12),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => Navigator.pop(ctx, "htdemucs_6s"),
+                child: Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: Row(
+                    children: [
+                      const CircleAvatar(
+                        backgroundColor: StageTheme.flameOrange,
+                        foregroundColor: Colors.white,
+                        child: Icon(Icons.piano),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: const [
+                            Text("6 Pistas Avanzado", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                            Text("Voz, Batería, Bajo, Guitarra, Piano, Otros", style: TextStyle(color: StageTheme.textSecondary, fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, color: StageTheme.flameOrange),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (chosenModel == null) return;
+
     setState(() {
       _isUploading = true;
       _uploadProgress = 0;
@@ -76,6 +187,7 @@ class _MixerScreenState extends State<MixerScreen> {
       filePath: picked.path,
       fileBytes: picked.bytes,
       fileName: picked.name,
+      model: chosenModel,
       onProgress: (sent, total) {
         if (total > 0 && mounted) {
           setState(() => _uploadProgress = ((sent / total) * 100).toInt());
@@ -89,16 +201,18 @@ class _MixerScreenState extends State<MixerScreen> {
       final taskId = res["task_id"] as String;
       _listenToTaskProgress(taskId);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Error al subir el archivo de audio")),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Error al subir el archivo de audio")),
+        );
+      }
     }
   }
 
   void _listenToTaskProgress(String taskId) {
     setState(() {
       _activeTaskId = taskId;
-      _taskStatus = "Iniciando separación con Demucs...";
+      _taskStatus = "Iniciando separación por IA con Demucs...";
       _separationProgress = 5;
     });
 
@@ -120,13 +234,14 @@ class _MixerScreenState extends State<MixerScreen> {
               _taskStatus = "Separando pistas ($progress%)...";
             });
 
-            if (status == "completed" && stems != null) {
+            if (status == "completed" && stems != null && stems.isNotEmpty) {
               _onSeparationCompleted(stems);
+            } else if (status == "failed") {
+              setState(() => _taskStatus = "Error en la separación.");
             }
           }
         },
         onError: (err) {
-          print("[MixerScreen] Error WebSocket: $err");
           _pollTaskStatus(taskId);
         },
       );
@@ -152,7 +267,7 @@ class _MixerScreenState extends State<MixerScreen> {
           _taskStatus = "Procesando ($progress%)...";
         });
 
-        if (status == "completed" && stems != null) {
+        if (status == "completed" && stems != null && stems.isNotEmpty) {
           timer.cancel();
           _onSeparationCompleted(stems);
         } else if (status == "failed") {
@@ -169,7 +284,6 @@ class _MixerScreenState extends State<MixerScreen> {
       _activeTaskId = null;
     });
 
-    // Cargar stems en el reproductor multipista
     final Map<String, String> fullUrls = {};
     stems.forEach((stemName, relativeUrl) {
       fullUrls[stemName] = _api.getFullUrl(relativeUrl);
@@ -178,8 +292,6 @@ class _MixerScreenState extends State<MixerScreen> {
     _player.loadStems(fullUrls);
     _loadRecentTasks();
   }
-
-  String? _currentLoadedSongName;
 
   void _loadCompletedTaskStems(String songName, Map<String, dynamic> stems) {
     setState(() => _currentLoadedSongName = songName);
@@ -209,7 +321,24 @@ class _MixerScreenState extends State<MixerScreen> {
       case 'piano':
         return Icons.piano;
       default:
-        return Icons.audiotrack;
+        return Icons.tune;
+    }
+  }
+
+  Color _getStemColor(String stemName) {
+    switch (stemName.toLowerCase()) {
+      case 'vocals':
+        return StageTheme.amberGold;
+      case 'drums':
+        return StageTheme.flameOrange;
+      case 'bass':
+        return StageTheme.electricGreen;
+      case 'guitar':
+        return const Color(0xFF00B0FF);
+      case 'piano':
+        return const Color(0xFFE040FB);
+      default:
+        return StageTheme.textSecondary;
     }
   }
 
@@ -226,7 +355,7 @@ class _MixerScreenState extends State<MixerScreen> {
       case 'piano':
         return "Piano / Teclados";
       case 'other':
-        return "Guitarras / Otros";
+        return "Otros / Arreglos";
       default:
         return stemName.toUpperCase();
     }
@@ -269,11 +398,11 @@ class _MixerScreenState extends State<MixerScreen> {
       appBar: AppBar(
         title: const Text("Mezclador"),
         actions: [
-          ProfileAppBarButton(onProfileChanged: () => setState(() {})),
+          const ProfileAppBarButton(),
           IconButton(
             icon: const Icon(Icons.library_music),
             tooltip: "Seleccionar canción",
-            onPressed: () => _showRecentTasksModal(),
+            onPressed: _showRecentTasksModal,
           ),
           IconButton(
             icon: const Icon(Icons.file_upload),
@@ -284,7 +413,7 @@ class _MixerScreenState extends State<MixerScreen> {
       ),
       body: Column(
         children: [
-          // Banner de progreso si hay carga o separación en curso
+          // Banner de progreso si hay subida o separación en curso
           if (_isUploading || _activeTaskId != null) _buildProgressBanner(),
 
           // Si hay pistas cargadas en el reproductor multipista
@@ -307,7 +436,7 @@ class _MixerScreenState extends State<MixerScreen> {
                     icon: const Icon(Icons.swap_horiz, size: 18),
                     label: const Text("Cambiar"),
                     style: TextButton.styleFrom(foregroundColor: StageTheme.amberGold),
-                    onPressed: () => _showRecentTasksModal(),
+                    onPressed: _showRecentTasksModal,
                   ),
                 ],
               ),
@@ -336,7 +465,7 @@ class _MixerScreenState extends State<MixerScreen> {
                     ),
                     const SizedBox(height: 6),
                     const Text(
-                      "Aísla pistas (Voz, Batería, Bajo, Guitarras/Otros) con IA para ensayar cualquier instrumento.",
+                      "Aísla pistas (Voz, Batería, Bajo, Guitarra, Piano, Otros) con IA para ensayar cualquier instrumento.",
                       textAlign: TextAlign.center,
                       style: TextStyle(color: StageTheme.textSecondary, fontSize: 13),
                     ),
@@ -394,12 +523,15 @@ class _MixerScreenState extends State<MixerScreen> {
                           final status = t["status"] ?? "";
                           final stems = t["stems"] as Map<String, dynamic>? ?? {};
                           final isCompleted = status == "completed";
+                          final stemCount = stems.length;
 
                           return Card(
                             margin: const EdgeInsets.symmetric(vertical: 4),
                             child: ListTile(
                               leading: CircleAvatar(
-                                backgroundColor: isCompleted ? StageTheme.electricGreen.withOpacity(0.2) : StageTheme.amberGold.withOpacity(0.2),
+                                backgroundColor: isCompleted
+                                    ? StageTheme.electricGreen.withOpacity(0.2)
+                                    : StageTheme.amberGold.withOpacity(0.2),
                                 child: Icon(
                                   isCompleted ? Icons.check : Icons.hourglass_top,
                                   color: isCompleted ? StageTheme.electricGreen : StageTheme.amberGold,
@@ -408,7 +540,9 @@ class _MixerScreenState extends State<MixerScreen> {
                               ),
                               title: Text(filename, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                               subtitle: Text(
-                                isCompleted ? "4 pistas disponibles (Voz, Batería, Bajo, Otros)" : "Estado: $status",
+                                isCompleted
+                                    ? "$stemCount pistas disponibles (${stems.keys.map(_getStemLabel).join(', ')})"
+                                    : "Estado: $status",
                                 style: const TextStyle(fontSize: 12, color: StageTheme.textSecondary),
                               ),
                               trailing: Row(
@@ -472,34 +606,68 @@ class _MixerScreenState extends State<MixerScreen> {
   }
 
   Widget _buildMasterControls() {
+    final durationMs = _player.duration.inMilliseconds.toDouble();
+    final currentPosMs = _draggingPositionMs ?? _player.position.inMilliseconds.toDouble();
+    final clampedPosMs = currentPosMs.clamp(0.0, durationMs > 0 ? durationMs : 1.0);
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: const BoxDecoration(
         color: StageTheme.surface,
         border: Border(bottom: BorderSide(color: StageTheme.border)),
       ),
       child: Column(
         children: [
-          // Barra de progreso y tiempo
+          // Barra de tiempo y progreso con búsqueda suave
           Row(
             children: [
-              Text(_formatDuration(_player.position), style: const TextStyle(color: StageTheme.textSecondary)),
+              Text(
+                _formatDuration(Duration(milliseconds: clampedPosMs.toInt())),
+                style: const TextStyle(color: StageTheme.textSecondary, fontSize: 12),
+              ),
               Expanded(
                 child: Slider(
-                  value: _player.position.inMilliseconds.toDouble().clamp(0.0, _player.duration.inMilliseconds.toDouble()),
-                  max: _player.duration.inMilliseconds.toDouble() > 0 ? _player.duration.inMilliseconds.toDouble() : 1.0,
-                  onChanged: (val) => _player.seek(Duration(milliseconds: val.toInt())),
+                  value: clampedPosMs,
+                  max: durationMs > 0 ? durationMs : 1.0,
+                  onChanged: (val) {
+                    setState(() => _draggingPositionMs = val);
+                  },
+                  onChangeEnd: (val) {
+                    _player.seek(Duration(milliseconds: val.toInt()));
+                    setState(() => _draggingPositionMs = null);
+                  },
                 ),
               ),
-              Text(_formatDuration(_player.duration), style: const TextStyle(color: StageTheme.textSecondary)),
+              Text(
+                _formatDuration(_player.duration),
+                style: const TextStyle(color: StageTheme.textSecondary, fontSize: 12),
+              ),
             ],
           ),
-          // Botón Play / Pause Maestro
+
+          // Botonera de transporte principal
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              // Rebobinar al inicio
               IconButton(
-                iconSize: 52,
+                icon: const Icon(Icons.skip_previous),
+                tooltip: "Inicio",
+                iconSize: 28,
+                onPressed: _player.restart,
+              ),
+              const SizedBox(width: 8),
+              // Saltar -10s
+              IconButton(
+                icon: const Icon(Icons.replay_10),
+                tooltip: "Retroceder 10s",
+                iconSize: 32,
+                onPressed: () => _player.seekRelative(const Duration(seconds: -10)),
+              ),
+              const SizedBox(width: 12),
+              // Botón Play / Pause Maestro
+              IconButton(
+                iconSize: 56,
                 icon: Icon(
                   _player.isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill,
                   color: StageTheme.flameOrange,
@@ -512,6 +680,141 @@ class _MixerScreenState extends State<MixerScreen> {
                   }
                 },
               ),
+              const SizedBox(width: 12),
+              // Saltar +10s
+              IconButton(
+                icon: const Icon(Icons.forward_10),
+                tooltip: "Avanzar 10s",
+                iconSize: 32,
+                onPressed: () => _player.seekRelative(const Duration(seconds: 10)),
+              ),
+              const SizedBox(width: 8),
+              // Bucle A-B Toggle
+              IconButton(
+                icon: Icon(
+                  Icons.repeat,
+                  color: _player.isLooping ? StageTheme.amberGold : StageTheme.textSecondary,
+                ),
+                tooltip: _player.isLooping ? "Desactivar bucle" : "Activar bucle A-B",
+                iconSize: 28,
+                onPressed: _player.toggleLoop,
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 4),
+
+          // Herramientas de ensayo: Velocidad, Tono, Bucle A-B y Reset Mezcla
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Selector de Velocidad (Tempo)
+                PopupMenuButton<double>(
+                  tooltip: "Velocidad de reproducción",
+                  onSelected: _player.setSpeed,
+                  itemBuilder: (ctx) => [
+                    const PopupMenuItem(value: 0.75, child: Text("0.75x (Muy Lento)")),
+                    const PopupMenuItem(value: 0.85, child: Text("0.85x (Lento)")),
+                    const PopupMenuItem(value: 1.0, child: Text("1.0x (Normal)")),
+                    const PopupMenuItem(value: 1.15, child: Text("1.15x (Rápido)")),
+                    const PopupMenuItem(value: 1.25, child: Text("1.25x (Muy Rápido)")),
+                  ],
+                  child: Chip(
+                    avatar: const Icon(Icons.speed, size: 16, color: StageTheme.amberGold),
+                    label: Text(
+                      "${_player.speed}x",
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                    backgroundColor: _player.speed != 1.0
+                        ? StageTheme.amberGold.withOpacity(0.2)
+                        : StageTheme.surfaceElevated,
+                    side: BorderSide(
+                      color: _player.speed != 1.0 ? StageTheme.amberGold : StageTheme.border,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+
+                // Selector de Bucle A-B
+                ActionChip(
+                  avatar: Icon(
+                    Icons.bookmark_border,
+                    size: 16,
+                    color: _player.loopStart != null ? StageTheme.flameOrange : StageTheme.textSecondary,
+                  ),
+                  label: Text(
+                    _player.loopStart == null
+                        ? "Fijar [A]"
+                        : "A: ${_formatDuration(_player.loopStart!)}",
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  backgroundColor: StageTheme.surfaceElevated,
+                  onPressed: _player.setLoopPointA,
+                ),
+                const SizedBox(width: 6),
+                ActionChip(
+                  avatar: Icon(
+                    Icons.bookmark,
+                    size: 16,
+                    color: _player.loopEnd != null ? StageTheme.flameOrange : StageTheme.textSecondary,
+                  ),
+                  label: Text(
+                    _player.loopEnd == null
+                        ? "Fijar [B]"
+                        : "B: ${_formatDuration(_player.loopEnd!)}",
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  backgroundColor: StageTheme.surfaceElevated,
+                  onPressed: _player.setLoopPointB,
+                ),
+                if (_player.loopStart != null || _player.loopEnd != null) ...[
+                  const SizedBox(width: 6),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 18, color: StageTheme.alertRed),
+                    tooltip: "Limpiar bucle A-B",
+                    onPressed: _player.clearLoop,
+                  ),
+                ],
+                const SizedBox(width: 8),
+
+                // Botón Restablecer Mezcla
+                ActionChip(
+                  avatar: const Icon(Icons.restart_alt, size: 16, color: StageTheme.textSecondary),
+                  label: const Text("Reset Mezcla", style: TextStyle(fontSize: 12)),
+                  backgroundColor: StageTheme.surfaceElevated,
+                  onPressed: _player.resetMix,
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 6),
+
+          // Control de Volumen Maestro
+          Row(
+            children: [
+              IconButton(
+                icon: Icon(
+                  _player.isMasterMuted ? Icons.volume_off : Icons.volume_up,
+                  color: _player.isMasterMuted ? StageTheme.alertRed : StageTheme.amberGold,
+                  size: 22,
+                ),
+                tooltip: _player.isMasterMuted ? "Activar sonido" : "Silenciar todo",
+                onPressed: _player.toggleMasterMute,
+              ),
+              const Text("Master:", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              Expanded(
+                child: Slider(
+                  value: _player.masterVolume,
+                  onChanged: _player.setMasterVolume,
+                ),
+              ),
+              Text(
+                "${(_player.masterVolume * 100).toInt()}%",
+                style: const TextStyle(fontSize: 12, color: StageTheme.textSecondary),
+              ),
             ],
           ),
         ],
@@ -520,79 +823,111 @@ class _MixerScreenState extends State<MixerScreen> {
   }
 
   Widget _buildChannelStrips() {
+    final soloActive = _player.hasAnySolo;
+
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       children: _player.tracks.values.map((track) {
-        return Card(
-          margin: const EdgeInsets.symmetric(vertical: 6),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              children: [
-                // Icono e instrumento
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: StageTheme.surfaceElevated,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(_getStemIcon(track.name), color: StageTheme.flameOrange, size: 28),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _getStemLabel(track.name),
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                      ),
-                      Text(
-                        "${(track.volume * 100).toInt()}%",
-                        style: const TextStyle(color: StageTheme.textSecondary, fontSize: 12),
-                      ),
-                    ],
-                  ),
-                ),
-                // Slider de volumen
-                Expanded(
-                  flex: 3,
-                  child: Slider(
-                    value: track.volume,
-                    onChanged: (val) => _player.setTrackVolume(track.name, val),
-                  ),
-                ),
-                // Botón Mute (M)
-                SizedBox(
-                  width: 44,
-                  height: 44,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      padding: EdgeInsets.zero,
-                      backgroundColor: track.isMuted ? StageTheme.alertRed : StageTheme.surfaceElevated,
-                      foregroundColor: Colors.white,
+        final isSilencedBySolo = soloActive && !track.isSolo;
+        final accentColor = _getStemColor(track.name);
+
+        return Opacity(
+          opacity: isSilencedBySolo ? 0.45 : 1.0,
+          child: Card(
+            margin: const EdgeInsets.symmetric(vertical: 5),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+              side: BorderSide(
+                color: track.isSolo
+                    ? StageTheme.amberGold
+                    : track.isMuted
+                        ? StageTheme.alertRed.withOpacity(0.5)
+                        : StageTheme.border,
+                width: track.isSolo ? 1.5 : 1.0,
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Row(
+                children: [
+                  // Icono del instrumento
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: accentColor.withOpacity(0.18),
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    onPressed: () => _player.toggleMute(track.name),
-                    child: const Text("M", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    child: Icon(_getStemIcon(track.name), color: accentColor, size: 26),
                   ),
-                ),
-                const SizedBox(width: 8),
-                // Botón Solo (S)
-                SizedBox(
-                  width: 44,
-                  height: 44,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      padding: EdgeInsets.zero,
-                      backgroundColor: track.isSolo ? StageTheme.amberGold : StageTheme.surfaceElevated,
-                      foregroundColor: track.isSolo ? Colors.black : Colors.white,
+                  const SizedBox(width: 12),
+
+                  // Nombre de la pista y porcentaje
+                  Expanded(
+                    flex: 2,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _getStemLabel(track.name),
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                        ),
+                        Text(
+                          isSilencedBySolo
+                              ? "Silenciado por Solo"
+                              : "${(track.volume * 100).toInt()}%",
+                          style: TextStyle(
+                            color: isSilencedBySolo ? StageTheme.alertRed : StageTheme.textSecondary,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
                     ),
-                    onPressed: () => _player.toggleSolo(track.name),
-                    child: const Text("S", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                   ),
-                ),
-              ],
+
+                  // Slider de volumen individual
+                  Expanded(
+                    flex: 3,
+                    child: Slider(
+                      value: track.volume,
+                      activeColor: accentColor,
+                      onChanged: (val) => _player.setTrackVolume(track.name, val),
+                    ),
+                  ),
+
+                  // Botón Mute (M)
+                  SizedBox(
+                    width: 42,
+                    height: 42,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        backgroundColor: track.isMuted ? StageTheme.alertRed : StageTheme.surfaceElevated,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onPressed: () => _player.toggleMute(track.name),
+                      child: const Text("M", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+
+                  // Botón Solo (S)
+                  SizedBox(
+                    width: 42,
+                    height: 42,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        backgroundColor: track.isSolo ? StageTheme.amberGold : StageTheme.surfaceElevated,
+                        foregroundColor: track.isSolo ? Colors.black : Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onPressed: () => _player.toggleSolo(track.name),
+                      child: const Text("S", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -611,7 +946,20 @@ class _MixerScreenState extends State<MixerScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text("Canciones Procesadas Recientes", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text("Canciones Procesadas", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  IconButton(
+                    icon: const Icon(Icons.refresh, color: StageTheme.amberGold),
+                    onPressed: () async {
+                      await _loadRecentTasks();
+                      if (ctx.mounted) Navigator.pop(ctx);
+                      _showRecentTasksModal();
+                    },
+                  ),
+                ],
+              ),
               const SizedBox(height: 12),
               Expanded(
                 child: _recentTasks.isEmpty
@@ -622,6 +970,7 @@ class _MixerScreenState extends State<MixerScreen> {
                           final t = _recentTasks[index];
                           final stems = t["stems"] as Map<String, dynamic>? ?? {};
                           final isCompleted = t["status"] == "completed";
+                          final stemCount = stems.length;
 
                           return ListTile(
                             leading: Icon(
@@ -629,7 +978,12 @@ class _MixerScreenState extends State<MixerScreen> {
                               color: isCompleted ? StageTheme.electricGreen : StageTheme.amberGold,
                             ),
                             title: Text(t["filename"] ?? "Audio", style: const TextStyle(fontWeight: FontWeight.bold)),
-                            subtitle: Text("Estado: ${t["status"]}"),
+                            subtitle: Text(
+                              isCompleted
+                                  ? "$stemCount pistas: ${stems.keys.map(_getStemLabel).join(', ')}"
+                                  : "Estado: ${t["status"]}",
+                              style: const TextStyle(fontSize: 12),
+                            ),
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
@@ -644,6 +998,10 @@ class _MixerScreenState extends State<MixerScreen> {
                                 if (isCompleted) ...[
                                   const SizedBox(width: 4),
                                   ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: StageTheme.amberGold,
+                                      foregroundColor: Colors.black,
+                                    ),
                                     child: const Text("Cargar"),
                                     onPressed: () {
                                       Navigator.pop(ctx);

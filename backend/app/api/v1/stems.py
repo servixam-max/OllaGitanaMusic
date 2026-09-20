@@ -27,6 +27,9 @@ async def upload_audio_for_stems(
     if not file.filename.lower().endswith((".mp3", ".wav", ".flac", ".ogg", ".m4a")):
         raise HTTPException(status_code=400, detail="Formato no soportado. Formatos válidos: MP3, WAV, FLAC, OGG, M4A")
 
+    if model not in ("htdemucs", "htdemucs_6s"):
+        model = "htdemucs"
+
     task_id = str(uuid.uuid4())
     ext = file.filename.split(".")[-1]
     input_filename = f"{task_id}.{ext}"
