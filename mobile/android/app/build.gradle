@@ -27,9 +27,18 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        release {
+            storeFile file("olla-gitana-key.jks")
+            storePassword "ollagitana2026"
+            keyAlias "ollagitana"
+            keyPassword "ollagitana2026"
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig = signingConfigs.debug
+            signingConfig = signingConfigs.release
         }
     }
 }
