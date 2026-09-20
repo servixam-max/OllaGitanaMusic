@@ -8,18 +8,22 @@ class AppUpdater {
   static const String currentVersion = "v1.0.12";
   static const String repoUrl = "https://api.github.com/repos/servixam-max/OllaGitanaMusic/releases/latest";
 
-  /// Comprueba semánticamente si una versión es superior a otra (ej. v1.0.5 > v1.0.4)
+  /// Comprueba semánticamente si una versión es superior a otra (ej. v1.0.12 > v1.0.9)
   static bool isNewerVersion(String latest, String current) {
     try {
-      final cleanLatest = latest.replaceAll(RegExp(r'[^0-9.]'), '');
-      final cleanCurrent = current.replaceAll(RegExp(r'[^0-9.]'), '');
-      final latestParts = cleanLatest.split('.').map(int.parse).toList();
-      final currentParts = cleanCurrent.split('.').map(int.parse).toList();
-      for (int i = 0; i < latestParts.length && i < currentParts.length; i++) {
-        if (latestParts[i] > currentParts[i]) return true;
-        if (latestParts[i] < currentParts[i]) return false;
+      // Quitar sufijos de build (+12) o prerelease (-beta) antes de limpiar
+      final cleanLatest = latest.split(RegExp(r'[-+]')).first.replaceAll(RegExp(r'[^0-9.]'), '');
+      final cleanCurrent = current.split(RegExp(r'[-+]')).first.replaceAll(RegExp(r'[^0-9.]'), '');
+      final latestParts = cleanLatest.split('.').where((s) => s.isNotEmpty).map(int.parse).toList();
+      final currentParts = cleanCurrent.split('.').where((s) => s.isNotEmpty).map(int.parse).toList();
+      final maxLength = latestParts.length > currentParts.length ? latestParts.length : currentParts.length;
+      for (int i = 0; i < maxLength; i++) {
+        final l = i < latestParts.length ? latestParts[i] : 0;
+        final c = i < currentParts.length ? currentParts[i] : 0;
+        if (l > c) return true;
+        if (l < c) return false;
       }
-      return latestParts.length > currentParts.length;
+      return false;
     } catch (_) {
       return latest.trim() != current.trim();
     }
