@@ -112,6 +112,39 @@ class _EventsScreenState extends State<EventsScreen> {
     }
   }
 
+  /// Formatea fechas en español de forma natural y elegante para músicos (sin 'T' ni segundos)
+  String _formatSpanishDate(String? dateStr, {bool full = false}) {
+    if (dateStr == null || dateStr.trim().isEmpty) return "Fecha por confirmar";
+    try {
+      final dt = DateTime.parse(dateStr);
+      const weekdays = [
+        "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"
+      ];
+      const months = [
+        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+      ];
+      final dayName = weekdays[dt.weekday - 1];
+      final monthName = months[dt.month - 1];
+      final day = dt.day;
+      final year = dt.year;
+      final hour = dt.hour.toString().padLeft(2, '0');
+      final minute = dt.minute.toString().padLeft(2, '0');
+
+      if (dt.hour == 0 && dt.minute == 0 && !dateStr.contains('T') && !dateStr.contains(':')) {
+        return "$dayName, $day de $monthName de $year";
+      }
+
+      if (full) {
+        return "$dayName, $day de $monthName de $year a las $hour:${minute}h";
+      } else {
+        return "$dayName, $day de $monthName - $hour:${minute}h";
+      }
+    } catch (_) {
+      return dateStr.replaceAll('T', ' ').replaceAll(RegExp(r':\d{2}$'), '');
+    }
+  }
+
   /// Comparte el evento y setlist por WhatsApp con formato profesional
   Future<void> _shareOnWhatsApp(Map<String, dynamic> event) async {
     final name = event["name"] ?? "Bolo Olla Gitana";
@@ -120,11 +153,7 @@ class _EventsScreenState extends State<EventsScreen> {
     final dateStr = event["event_date"] ?? "";
     final setlist = (event["setlist"] as List<dynamic>? ?? []);
 
-    String formattedDate = dateStr;
-    try {
-      final dt = DateTime.parse(dateStr);
-      formattedDate = DateFormat("EEEE, d 'de' MMMM 'de' yyyy - HH:mm'h'", "es_ES").format(dt);
-    } catch (_) {}
+    final formattedDate = _formatSpanishDate(dateStr, full: true);
 
     final StringBuffer msg = StringBuffer();
     msg.writeln("🎸🔥 *OLLA GITANA - EVENTO EN DIRECTO* 🔥🎸\n");
@@ -611,11 +640,7 @@ class _EventsScreenState extends State<EventsScreen> {
                           final setlist = (event["setlist"] as List<dynamic>? ?? []);
                           final dateStr = event["event_date"] ?? "";
 
-                          String displayDate = dateStr;
-                          try {
-                            final dt = DateTime.parse(dateStr);
-                            displayDate = DateFormat("EEE, d MMM yyyy - HH:mm'h'", "es_ES").format(dt);
-                          } catch (_) {}
+                          final displayDate = _formatSpanishDate(dateStr, full: false);
 
                           return Card(
                             margin: const EdgeInsets.symmetric(vertical: 6),
