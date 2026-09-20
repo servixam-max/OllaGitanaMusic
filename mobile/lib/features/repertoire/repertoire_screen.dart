@@ -8,6 +8,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/theme/stage_theme.dart';
+import '../../core/audio/preview_player.dart';
+import '../../core/widgets/profile_app_bar_button.dart';
 
 class RepertoireScreen extends StatefulWidget {
   const RepertoireScreen({super.key});
@@ -192,17 +194,18 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Sala de Ensayo & Votaciones"),
+        title: const Text("Repertorio"),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh, color: StageTheme.amberGold),
-            tooltip: "Recargar repertorio",
-            onPressed: () => _loadSongs(),
-          ),
+          ProfileAppBarButton(onProfileChanged: () => setState(() {})),
           IconButton(
             icon: const Icon(Icons.share, color: StageTheme.amberGold),
             tooltip: "Compartir repertorio por WhatsApp",
             onPressed: _shareRepertoireOnWhatsApp,
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh, color: StageTheme.amberGold),
+            tooltip: "Recargar repertorio",
+            onPressed: () => _loadSongs(),
           ),
         ],
       ),

@@ -2,5 +2,6 @@ from app.models.repertoire import SongProposal, SongVote
 from app.models.stem_task import StemTask
 from app.models.event import BandEvent
 from app.models.analyzed_song import AnalyzedSong
+from app.models.member import BandMember
 
-__all__ = ["SongProposal", "SongVote", "StemTask", "BandEvent", "AnalyzedSong"]
+__all__ = ["SongProposal", "SongVote", "StemTask", "BandEvent", "AnalyzedSong", "BandMember"]

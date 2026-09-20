@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import '../../core/network/api_client.dart';
 import '../../core/theme/stage_theme.dart';
 import '../../core/updater/app_updater.dart';
+import '../../core/widgets/member_selector_dialog.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -229,15 +230,59 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      "Tu nombre o instrumento para firmar propuestas y votos en el repertorio.",
+                      "Tus votos, canciones y eventos se guardarán con tu nombre:",
                       style: TextStyle(color: StageTheme.textSecondary, fontSize: 13),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: StageTheme.surfaceElevated,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: StageTheme.amberGold),
+                      ),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            backgroundColor: StageTheme.amberGold,
+                            foregroundColor: Colors.black,
+                            child: const Icon(Icons.person, size: 22),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text("Músico Activo:", style: TextStyle(color: StageTheme.textSecondary, fontSize: 11)),
+                                Text(
+                                  _api.userName,
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: StageTheme.amberGold),
+                                ),
+                              ],
+                            ),
+                          ),
+                          ElevatedButton.icon(
+                            icon: const Icon(Icons.swap_horiz, size: 18),
+                            label: const Text("Cambiar"),
+                            style: ElevatedButton.styleFrom(backgroundColor: StageTheme.flameOrange),
+                            onPressed: () async {
+                              final chosen = await showMemberSelectorDialog(context);
+                              if (chosen != null && mounted) {
+                                setState(() {
+                                  _nameController.text = chosen;
+                                });
+                              }
+                            },
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 12),
                     TextField(
                       controller: _nameController,
                       decoration: InputDecoration(
-                        labelText: "Nombre / Rol",
-                        hintText: "Ej: Carlos (Guitarra) o Ana (Voz)",
+                        labelText: "O escribe un nombre personalizado",
+                        hintText: "Ej: Champi, Rubén, Mario, Miguel...",
                         filled: true,
                         fillColor: StageTheme.surfaceElevated,
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),

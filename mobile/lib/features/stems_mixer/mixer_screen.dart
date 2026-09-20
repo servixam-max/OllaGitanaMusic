@@ -7,6 +7,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../../core/audio/multitrack_player.dart';
 import '../../core/network/api_client.dart';
 import '../../core/theme/stage_theme.dart';
+import '../../core/widgets/profile_app_bar_button.dart';
 
 class MixerScreen extends StatefulWidget {
   const MixerScreen({super.key});
@@ -266,8 +267,9 @@ class _MixerScreenState extends State<MixerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Mezclador de Ensayo"),
+        title: const Text("Mezclador"),
         actions: [
+          ProfileAppBarButton(onProfileChanged: () => setState(() {})),
           IconButton(
             icon: const Icon(Icons.library_music),
             tooltip: "Seleccionar canción",
@@ -415,7 +417,7 @@ class _MixerScreenState extends State<MixerScreen> {
                                   IconButton(
                                     icon: const Icon(Icons.delete_outline, color: StageTheme.alertRed),
                                     tooltip: "Eliminar canción",
-                                    onPressed: () => _deleteTask(t["id"] ?? "", filename),
+                                    onPressed: () => _deleteTask(t["task_id"] ?? t["id"] ?? "", filename),
                                   ),
                                   if (isCompleted) ...[
                                     const SizedBox(width: 4),
@@ -636,7 +638,7 @@ class _MixerScreenState extends State<MixerScreen> {
                                   tooltip: "Eliminar",
                                   onPressed: () {
                                     Navigator.pop(ctx);
-                                    _deleteTask(t["id"] ?? "", t["filename"] ?? "Audio");
+                                    _deleteTask(t["task_id"] ?? t["id"] ?? "", t["filename"] ?? "Audio");
                                   },
                                 ),
                                 if (isCompleted) ...[

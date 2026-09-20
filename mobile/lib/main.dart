@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'core/network/api_client.dart';
 import 'core/theme/stage_theme.dart';
 import 'core/updater/app_updater.dart';
+import 'core/widgets/member_selector_dialog.dart';
 import 'features/lyrics/lyrics_screen.dart';
 import 'features/stems_mixer/mixer_screen.dart';
 import 'features/chords/chords_screen.dart';
@@ -43,6 +44,16 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   void initState() {
     super.initState();
     _checkUpdatesOnStartup();
+    _checkUserIdentification();
+  }
+
+  void _checkUserIdentification() async {
+    await Future.delayed(const Duration(milliseconds: 700));
+    if (!mounted) return;
+    if (!ApiClient().isUserIdentified) {
+      await showMemberSelectorDialog(context, barrierDismissible: false);
+      if (mounted) setState(() {});
+    }
   }
 
   void _checkUpdatesOnStartup() async {

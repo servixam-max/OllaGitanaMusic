@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/theme/stage_theme.dart';
+import '../../core/widgets/profile_app_bar_button.dart';
 
 class EventsScreen extends StatefulWidget {
   const EventsScreen({super.key});
@@ -510,6 +511,14 @@ class _EventsScreenState extends State<EventsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Eventos & Bolos"),
+        actions: [
+          ProfileAppBarButton(onProfileChanged: () => setState(() {})),
+          IconButton(
+            icon: const Icon(Icons.refresh, color: StageTheme.amberGold),
+            tooltip: "Recargar eventos",
+            onPressed: () => _loadEvents(),
+          ),
+        ],
       ),
       body: Column(
         children: [

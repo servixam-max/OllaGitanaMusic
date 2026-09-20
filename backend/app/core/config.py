@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Olla Gitana Music Backend"
-    VERSION: str = "1.0.7"
+    VERSION: str = "1.0.8"
     PORT: int = 8000
     DATA_DIR: str = os.getenv("DATA_DIR", "./data")
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./data/olla_gitana.db")

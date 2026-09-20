@@ -25,8 +25,17 @@ class ApiClient {
     _loadSettings();
   }
 
+  static const List<String> defaultMembers = ["Champi", "Rubén", "Mario", "Miguel"];
+
   String get baseUrl => _baseUrl;
   String get userName => _userName;
+  bool get isUserIdentified => _userName != "Músico Olla Gitana" && _userName.trim().isNotEmpty;
+
+  Future<void> setUserName(String name) async {
+    _userName = name.trim();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString("user_name", _userName);
+  }
 
   Future<void> ensureInitialized() async {
     await _loadSettings();
@@ -495,6 +504,30 @@ class ApiClient {
     try {
       await _dio.delete("/api/v1/events/$eventId");
       return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // --- Módulo 6: Miembros de la Banda & Identidad ---
+  Future<List<Map<String, dynamic>>> getBandMembers() async {
+    try {
+      final response = await _dio.get("/api/v1/members");
+      if (response.statusCode == 200 && response.data is List) {
+        return (response.data as List).map((m) => Map<String, dynamic>.from(m)).toList();
+      }
+    } catch (_) {}
+
+    return defaultMembers.map((n) => {"name": n, "role": "Músico", "avatar_color": "#E5A93C"}).toList();
+  }
+
+  Future<bool> addBandMember(String name, {String? role}) async {
+    try {
+      final response = await _dio.post(
+        "/api/v1/members",
+        data: {"name": name.trim(), "role": role ?? "Músico"},
+      );
+      return response.statusCode == 200;
     } catch (_) {
       return false;
     }

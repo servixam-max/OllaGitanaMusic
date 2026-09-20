@@ -90,6 +90,7 @@ async def list_stem_tasks(limit: int = 20, db: AsyncSession = Depends(get_db)):
 
     return [
         {
+            "id": t.id,
             "task_id": t.id,
             "filename": t.original_filename,
             "status": t.status,
