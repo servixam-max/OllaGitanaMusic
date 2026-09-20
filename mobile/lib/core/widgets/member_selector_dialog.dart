@@ -82,62 +82,63 @@ class _MemberSelectorDialogState extends State<_MemberSelectorDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final current = _api.userName;
-
-    return AlertDialog(
-      backgroundColor: StageTheme.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-        side: const BorderSide(color: StageTheme.amberGold, width: 1.5),
-      ),
-      title: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
-              Icon(Icons.local_fire_department, color: StageTheme.flameOrange, size: 28),
-              SizedBox(width: 8),
-              Text(
-                "Olla Gitana",
-                style: TextStyle(
-                  color: StageTheme.amberGold,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.5,
-                  fontSize: 18,
-                ),
+    return ValueListenableBuilder<String>(
+      valueListenable: _api.userNameNotifier,
+      builder: (context, current, _) {
+        return AlertDialog(
+          backgroundColor: StageTheme.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: const BorderSide(color: StageTheme.amberGold, width: 1.5),
+          ),
+          title: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: const [
+                  Icon(Icons.local_fire_department, color: StageTheme.flameOrange, size: 28),
+                  SizedBox(width: 8),
+                  Text(
+                    "Olla Gitana",
+                    style: TextStyle(
+                      color: StageTheme.amberGold,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.5,
+                      fontSize: 18,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                "¿Quién eres en la banda?",
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                "Tus votos, canciones y eventos se guardarán con tu nombre:",
+                textAlign: TextAlign.center,
+                style: TextStyle(color: StageTheme.textSecondary, fontSize: 12),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          const Text(
-            "¿Quién eres en la banda?",
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            "Tus votos, canciones y eventos se guardarán con tu nombre:",
-            textAlign: TextAlign.center,
-            style: TextStyle(color: StageTheme.textSecondary, fontSize: 12),
-          ),
-        ],
-      ),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: _isLoading
-            ? const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(24.0),
-                  child: CircularProgressIndicator(color: StageTheme.amberGold),
-                ),
-              )
-            : SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    ..._members.map((m) {
-                      final name = m["name"] as String? ?? "";
-                      final role = m["role"] as String? ?? "Músico";
-                      final isSelected = current == name;
+          content: SizedBox(
+            width: double.maxFinite,
+            child: _isLoading
+                ? const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(24.0),
+                      child: CircularProgressIndicator(color: StageTheme.amberGold),
+                    ),
+                  )
+                : SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ..._members.map((m) {
+                          final name = m["name"] as String? ?? "";
+                          final role = m["role"] as String? ?? "Músico";
+                          final isSelected = current == name;
 
                       return Container(
                         margin: const EdgeInsets.symmetric(vertical: 5),
@@ -236,8 +237,10 @@ class _MemberSelectorDialogState extends State<_MemberSelectorDialog> {
                       ),
                   ],
                 ),
-              ),
-      ),
+                ),
+          ),
+        );
+      },
     );
   }
 }

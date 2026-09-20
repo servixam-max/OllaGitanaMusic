@@ -27,12 +27,17 @@ class ApiClient {
 
   static const List<String> defaultMembers = ["Champi", "Rubén", "Mario", "Miguel"];
 
+  /// Notificador reactivo para que cualquier widget (barra superior, ajustes, diálogos)
+  /// se actualice inmediatamente en toda la app cuando cambie el músico activo.
+  final ValueNotifier<String> userNameNotifier = ValueNotifier<String>("Músico Olla Gitana");
+
   String get baseUrl => _baseUrl;
   String get userName => _userName;
   bool get isUserIdentified => _userName != "Músico Olla Gitana" && _userName.trim().isNotEmpty;
 
   Future<void> setUserName(String name) async {
     _userName = name.trim();
+    userNameNotifier.value = _userName;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString("user_name", _userName);
   }
@@ -61,12 +66,14 @@ class ApiClient {
       _baseUrl = prefs.getString("backend_url") ?? "https://servi.tail31979d.ts.net/olla";
     }
     _userName = prefs.getString("user_name") ?? "Músico Olla Gitana";
+    userNameNotifier.value = _userName;
     _dio.options.baseUrl = _baseUrl;
   }
 
   Future<void> updateSettings(String newUrl, String newUserName) async {
     _baseUrl = newUrl.endsWith('/') ? newUrl.substring(0, newUrl.length - 1) : newUrl;
-    _userName = newUserName;
+    _userName = newUserName.trim();
+    userNameNotifier.value = _userName;
     _dio.options.baseUrl = _baseUrl;
 
     final prefs = await SharedPreferences.getInstance();

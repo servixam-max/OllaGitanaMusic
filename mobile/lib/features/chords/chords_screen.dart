@@ -5,6 +5,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/network/api_client.dart';
 import '../../core/theme/stage_theme.dart';
+import '../../core/widgets/profile_app_bar_button.dart';
 
 // Modelo de acordes de guitarra para diagramas de mástil
 class ChordDiagramData {
@@ -363,6 +364,9 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
     return Scaffold(
       appBar: AppBar(
         title: const Text("Acordes & Tonalidad"),
+        actions: const [
+          ProfileAppBarButton(),
+        ],
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: StageTheme.flameOrange,

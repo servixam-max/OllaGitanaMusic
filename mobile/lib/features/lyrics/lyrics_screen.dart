@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/network/api_client.dart';
 import '../../core/theme/stage_theme.dart';
+import '../../core/widgets/profile_app_bar_button.dart';
 
 class LyricsScreen extends StatefulWidget {
   const LyricsScreen({super.key});
@@ -92,6 +93,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
       appBar: AppBar(
         title: const Text("Letras en Directo"),
         actions: [
+          const ProfileAppBarButton(),
           if (_currentLyrics != null) ...[
             // Controles de tamaño de fuente
             IconButton(

@@ -5,6 +5,7 @@ import '../../core/network/api_client.dart';
 import '../../core/theme/stage_theme.dart';
 import '../../core/updater/app_updater.dart';
 import '../../core/widgets/member_selector_dialog.dart';
+import '../../core/widgets/profile_app_bar_button.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -27,10 +28,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _urlController.text = _api.baseUrl;
     _nameController.text = _api.userName;
+    _api.userNameNotifier.addListener(_onUserNameChanged);
+  }
+
+  void _onUserNameChanged() {
+    if (mounted) {
+      if (_nameController.text != _api.userName) {
+        _nameController.text = _api.userName;
+      }
+      setState(() {});
+    }
   }
 
   @override
   void dispose() {
+    _api.userNameNotifier.removeListener(_onUserNameChanged);
     _urlController.dispose();
     _nameController.dispose();
     super.dispose();
@@ -42,10 +54,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (url.isEmpty || name.isEmpty) return;
 
     await _api.updateSettings(url, name);
+    // Asegurar que también se registre como miembro en el backend si es nuevo
+    _api.addBandMember(name);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Ajustes guardados correctamente")),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: StageTheme.electricGreen,
+          content: Text("Ajustes guardados: Músico activo '$name'"),
+        ),
+      );
+    }
   }
 
   Future<void> _testConnection() async {
@@ -91,6 +110,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Configuración & Conexión"),
+        actions: const [
+          ProfileAppBarButton(),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -234,48 +256,59 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       style: TextStyle(color: StageTheme.textSecondary, fontSize: 13),
                     ),
                     const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: StageTheme.surfaceElevated,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: StageTheme.amberGold),
-                      ),
-                      child: Row(
-                        children: [
-                          CircleAvatar(
-                            backgroundColor: StageTheme.amberGold,
-                            foregroundColor: Colors.black,
-                            child: const Icon(Icons.person, size: 22),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text("Músico Activo:", style: TextStyle(color: StageTheme.textSecondary, fontSize: 11)),
-                                Text(
-                                  _api.userName,
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: StageTheme.amberGold),
-                                ),
-                              ],
+                    ValueListenableBuilder<String>(
+                      valueListenable: _api.userNameNotifier,
+                      builder: (context, currentName, _) {
+                        final isIdentified = _api.isUserIdentified;
+                        return Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: StageTheme.surfaceElevated,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isIdentified ? StageTheme.amberGold : StageTheme.border,
+                              width: 1.2,
                             ),
                           ),
-                          ElevatedButton.icon(
-                            icon: const Icon(Icons.swap_horiz, size: 18),
-                            label: const Text("Cambiar"),
-                            style: ElevatedButton.styleFrom(backgroundColor: StageTheme.flameOrange),
-                            onPressed: () async {
-                              final chosen = await showMemberSelectorDialog(context);
-                              if (chosen != null && mounted) {
-                                setState(() {
-                                  _nameController.text = chosen;
-                                });
-                              }
-                            },
+                          child: Row(
+                            children: [
+                              CircleAvatar(
+                                backgroundColor: isIdentified ? StageTheme.amberGold : StageTheme.border,
+                                foregroundColor: isIdentified ? Colors.black : StageTheme.textSecondary,
+                                child: const Icon(Icons.person, size: 22),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text("Músico Activo:", style: TextStyle(color: StageTheme.textSecondary, fontSize: 11)),
+                                    Text(
+                                      isIdentified ? currentName : "Sin seleccionar",
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                        color: isIdentified ? StageTheme.amberGold : StageTheme.textSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              ElevatedButton.icon(
+                                icon: const Icon(Icons.swap_horiz, size: 18),
+                                label: const Text("Cambiar"),
+                                style: ElevatedButton.styleFrom(backgroundColor: StageTheme.flameOrange),
+                                onPressed: () async {
+                                  final chosen = await showMemberSelectorDialog(context);
+                                  if (chosen != null && mounted) {
+                                    _nameController.text = chosen;
+                                  }
+                                },
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
+                        );
+                      },
                     ),
                     const SizedBox(height: 12),
                     TextField(
