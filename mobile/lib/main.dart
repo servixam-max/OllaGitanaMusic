@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'core/theme/stage_theme.dart';
+import 'core/updater/app_updater.dart';
 import 'features/lyrics/lyrics_screen.dart';
 import 'features/stems_mixer/mixer_screen.dart';
 import 'features/chords/chords_screen.dart';
@@ -34,6 +35,21 @@ class MainNavigationScreen extends StatefulWidget {
 
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkUpdatesOnStartup();
+  }
+
+  void _checkUpdatesOnStartup() async {
+    await Future.delayed(const Duration(seconds: 2));
+    if (!mounted) return;
+    final update = await AppUpdater.checkForUpdates();
+    if (update != null && update["hasUpdate"] == true && mounted) {
+      AppUpdater.showUpdateDialog(context, update);
+    }
+  }
 
   final List<Widget> _screens = const [
     RepertoireScreen(),

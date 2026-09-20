@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import '../../core/network/api_client.dart';
 import '../../core/theme/stage_theme.dart';
+import '../../core/updater/app_updater.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -126,6 +127,74 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                 ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Tarjeta de Actualizaciones de la App
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          "Actualizaciones de la App",
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: StageTheme.surfaceElevated,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: StageTheme.amberGold),
+                          ),
+                          child: const Text(
+                            AppUpdater.currentVersion,
+                            style: TextStyle(
+                              color: StageTheme.amberGold,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      "Comprueba si hay una nueva versión del APK en GitHub para descargar e instalar mejoras en los móviles de la banda.",
+                      style: TextStyle(color: StageTheme.textSecondary, fontSize: 13),
+                    ),
+                    const SizedBox(height: 12),
+                    ElevatedButton.icon(
+                      icon: const Icon(Icons.system_update),
+                      label: const Text("Comprobar Actualizaciones"),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: StageTheme.surfaceElevated,
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: StageTheme.border),
+                      ),
+                      onPressed: () async {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text("Buscando actualizaciones en GitHub...")),
+                        );
+                        final update = await AppUpdater.checkForUpdates();
+                        if (update != null && update["hasUpdate"] == true) {
+                          AppUpdater.showUpdateDialog(context, update);
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              backgroundColor: StageTheme.electricGreen,
+                              content: Text("¡Ya tienes instalada la última versión! (v1.0.0)"),
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 16),
