@@ -187,7 +187,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               backgroundColor: StageTheme.electricGreen,
-                              content: Text("¡Ya tienes instalada la última versión! (v1.0.0)"),
+                              content: Text("¡Ya tienes instalada la última versión! (${AppUpdater.currentVersion})"),
                             ),
                           );
                         }

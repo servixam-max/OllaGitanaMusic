@@ -7,6 +7,23 @@ class AppUpdater {
   static const String currentVersion = "v1.0.5";
   static const String repoUrl = "https://api.github.com/repos/servixam-max/OllaGitanaMusic/releases/latest";
 
+  /// Comprueba semánticamente si una versión es superior a otra (ej. v1.0.5 > v1.0.4)
+  static bool isNewerVersion(String latest, String current) {
+    try {
+      final cleanLatest = latest.replaceAll(RegExp(r'[^0-9.]'), '');
+      final cleanCurrent = current.replaceAll(RegExp(r'[^0-9.]'), '');
+      final latestParts = cleanLatest.split('.').map(int.parse).toList();
+      final currentParts = cleanCurrent.split('.').map(int.parse).toList();
+      for (int i = 0; i < latestParts.length && i < currentParts.length; i++) {
+        if (latestParts[i] > currentParts[i]) return true;
+        if (latestParts[i] < currentParts[i]) return false;
+      }
+      return latestParts.length > currentParts.length;
+    } catch (_) {
+      return latest.trim() != current.trim();
+    }
+  }
+
   /// Comprueba en GitHub Releases si hay una versión superior a la instalada
   static Future<Map<String, dynamic>?> checkForUpdates() async {
     try {
@@ -31,7 +48,7 @@ class AppUpdater {
         // Si no hay asset específico, usar el enlace web de la release
         apkDownloadUrl ??= data["html_url"];
 
-        final hasUpdate = latestTag.isNotEmpty && latestTag != currentVersion;
+        final hasUpdate = latestTag.isNotEmpty && isNewerVersion(latestTag, currentVersion);
 
         return {
           "hasUpdate": hasUpdate,

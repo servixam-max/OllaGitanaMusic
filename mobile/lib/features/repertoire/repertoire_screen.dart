@@ -138,6 +138,8 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
       default:
         return status;
     }
+  }
+
   Future<void> _shareRepertoireOnWhatsApp() async {
     List<dynamic> songsToShare = _songs;
     if (songsToShare.isEmpty) {
