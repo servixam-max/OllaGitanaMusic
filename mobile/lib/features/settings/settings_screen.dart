@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import '../../core/network/api_client.dart';
@@ -149,12 +150,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           decoration: BoxDecoration(
                             color: StageTheme.surfaceElevated,
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: StageTheme.amberGold),
+                            border: Border.all(color: kIsWeb ? StageTheme.electricGreen : StageTheme.amberGold),
                           ),
-                          child: const Text(
-                            AppUpdater.currentVersion,
+                          child: Text(
+                            kIsWeb ? "${AppUpdater.currentVersion} (Web PWA)" : AppUpdater.currentVersion,
                             style: TextStyle(
-                              color: StageTheme.amberGold,
+                              color: kIsWeb ? StageTheme.electricGreen : StageTheme.amberGold,
                               fontWeight: FontWeight.bold,
                               fontSize: 12,
                             ),
@@ -163,20 +164,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      "Comprueba si hay una nueva versión del APK en GitHub para descargar e instalar mejoras en los móviles de la banda.",
-                      style: TextStyle(color: StageTheme.textSecondary, fontSize: 13),
+                    Text(
+                      kIsWeb
+                          ? "Estás en la versión Web PWA para iOS / Navegador. Esta versión siempre se actualiza sola automáticamente desde el servidor sin necesidad de descargas."
+                          : "Comprueba si hay una nueva versión del APK en GitHub para descargar e instalar mejoras en los móviles de la banda.",
+                      style: const TextStyle(color: StageTheme.textSecondary, fontSize: 13),
                     ),
                     const SizedBox(height: 12),
                     ElevatedButton.icon(
                       icon: const Icon(Icons.system_update),
-                      label: const Text("Comprobar Actualizaciones"),
+                      label: Text(kIsWeb ? "Comprobar Estado Web" : "Comprobar Actualizaciones"),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: StageTheme.surfaceElevated,
                         foregroundColor: Colors.white,
                         side: const BorderSide(color: StageTheme.border),
                       ),
                       onPressed: () async {
+                        if (kIsWeb) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              backgroundColor: StageTheme.electricGreen,
+                              content: Text("¡Versión Web PWA al día (${AppUpdater.currentVersion})!"),
+                            ),
+                          );
+                          return;
+                        }
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text("Buscando actualizaciones en GitHub...")),
                         );

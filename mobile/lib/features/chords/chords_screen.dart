@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:just_audio/just_audio.dart';
@@ -297,16 +296,22 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['mp3', 'wav', 'flac', 'ogg', 'm4a'],
+      withData: true,
     );
 
-    if (result == null || result.files.single.path == null) return;
+    if (result == null || (result.files.single.path == null && result.files.single.bytes == null)) return;
+    final picked = result.files.single;
 
     setState(() {
       _isAnalyzing = true;
       _analysisResult = null;
     });
 
-    final analysis = await _api.extractChords(filePath: result.files.single.path!);
+    final analysis = await _api.extractChords(
+      filePath: picked.path,
+      fileBytes: picked.bytes,
+      fileName: picked.name,
+    );
 
     setState(() {
       _isAnalyzing = false;

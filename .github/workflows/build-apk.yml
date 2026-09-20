@@ -1,4 +1,4 @@
-name: Build & Release Android APK
+name: Build & Release Android APK & Web PWA
 
 on:
   push:
@@ -11,8 +11,8 @@ permissions:
   contents: write
 
 jobs:
-  build-apk:
-    name: Compilar APK Android
+  build:
+    name: Compilar APK Android y Web PWA
     runs-on: ubuntu-latest
 
     steps:
@@ -42,22 +42,37 @@ jobs:
           cd mobile
           flutter build apk --release
 
+      - name: Compilar Web PWA Release
+        run: |
+          cd mobile
+          flutter build web --release --base-href "/olla/app/"
+
+      - name: Empaquetar Web PWA
+        run: |
+          cd mobile/build/web
+          tar -czvf ../../../olla-gitana-web.tar.gz .
+
       - name: Renombrar APK
         run: |
           cp mobile/build/app/outputs/flutter-apk/app-release.apk olla-gitana-music.apk
 
-      - name: Subir APK como artefacto de GitHub Actions
+      - name: Subir artefactos de GitHub Actions
         uses: actions/upload-artifact@v4
         with:
-          name: olla-gitana-music-apk
-          path: olla-gitana-music.apk
+          name: release-assets
+          path: |
+            olla-gitana-music.apk
+            olla-gitana-web.tar.gz
 
-      - name: Publicar Release en GitHub con APK
+      - name: Publicar Release en GitHub con APK y Web PWA
         uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
         with:
           tag_name: ${{ github.ref_name }}
           name: "Olla Gitana Music ${{ github.ref_name }}"
-          files: olla-gitana-music.apk
+          files: |
+            olla-gitana-music.apk
+            olla-gitana-web.tar.gz
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

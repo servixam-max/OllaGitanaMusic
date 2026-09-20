@@ -58,11 +58,12 @@ class _MixerScreenState extends State<MixerScreen> {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['mp3', 'wav', 'flac', 'ogg', 'm4a'],
+      withData: true,
     );
 
-    if (result == null || result.files.single.path == null) return;
+    if (result == null || (result.files.single.path == null && result.files.single.bytes == null)) return;
+    final picked = result.files.single;
 
-    final filePath = result.files.single.path!;
     setState(() {
       _isUploading = true;
       _uploadProgress = 0;
@@ -71,7 +72,9 @@ class _MixerScreenState extends State<MixerScreen> {
     });
 
     final res = await _api.uploadAudioForStems(
-      filePath,
+      filePath: picked.path,
+      fileBytes: picked.bytes,
+      fileName: picked.name,
       onProgress: (sent, total) {
         if (total > 0 && mounted) {
           setState(() => _uploadProgress = ((sent / total) * 100).toInt());

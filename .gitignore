@@ -20,6 +20,8 @@ backend/data/uploads/*
 !backend/data/uploads/.gitkeep
 backend/data/stems/*
 !backend/data/stems/.gitkeep
+backend/web/*
+!backend/web/.gitkeep
 output/
 
 # Flutter & Dart

@@ -1,5 +1,5 @@
-import 'dart:io';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -43,7 +43,14 @@ class ApiClient {
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    _baseUrl = prefs.getString("backend_url") ?? "https://servi.tail31979d.ts.net/olla";
+    if (kIsWeb) {
+      final origin = Uri.base.origin;
+      final isOllaPath = Uri.base.path.contains('/olla');
+      final defaultWebUrl = isOllaPath ? '$origin/olla' : origin;
+      _baseUrl = prefs.getString("backend_url") ?? defaultWebUrl;
+    } else {
+      _baseUrl = prefs.getString("backend_url") ?? "https://servi.tail31979d.ts.net/olla";
+    }
     _userName = prefs.getString("user_name") ?? "Músico Olla Gitana";
     _dio.options.baseUrl = _baseUrl;
   }
@@ -123,15 +130,26 @@ class ApiClient {
   }
 
   // --- Módulo 2: Stems ---
-  Future<Map<String, dynamic>?> uploadAudioForStems(
-    String filePath, {
+  Future<Map<String, dynamic>?> uploadAudioForStems({
+    String? filePath,
+    Uint8List? fileBytes,
+    String? fileName,
     String model = "htdemucs",
     void Function(int sent, int total)? onProgress,
   }) async {
     try {
-      final fileName = filePath.split(Platform.pathSeparator).last;
+      MultipartFile multipartFile;
+      if (fileBytes != null) {
+        multipartFile = MultipartFile.fromBytes(fileBytes, filename: fileName ?? "audio.mp3");
+      } else if (filePath != null) {
+        final cleanName = filePath.split(RegExp(r'[/\\]')).last;
+        multipartFile = await MultipartFile.fromFile(filePath, filename: cleanName);
+      } else {
+        return null;
+      }
+
       final formData = FormData.fromMap({
-        "file": await MultipartFile.fromFile(filePath, filename: fileName),
+        "file": multipartFile,
         "model": model,
       });
 
@@ -206,15 +224,24 @@ class ApiClient {
     return [];
   }
 
-  Future<Map<String, dynamic>?> extractChords({String? taskId, String? filePath}) async {
+  Future<Map<String, dynamic>?> extractChords({
+    String? taskId,
+    String? filePath,
+    Uint8List? fileBytes,
+    String? fileName,
+  }) async {
     try {
       FormData formData;
       if (taskId != null) {
         formData = FormData.fromMap({"task_id": taskId});
-      } else if (filePath != null) {
-        final fileName = filePath.split(Platform.pathSeparator).last;
+      } else if (fileBytes != null) {
         formData = FormData.fromMap({
-          "file": await MultipartFile.fromFile(filePath, filename: fileName),
+          "file": MultipartFile.fromBytes(fileBytes, filename: fileName ?? "audio.mp3"),
+        });
+      } else if (filePath != null) {
+        final cleanName = filePath.split(RegExp(r'[/\\]')).last;
+        formData = FormData.fromMap({
+          "file": await MultipartFile.fromFile(filePath, filename: cleanName),
         });
       } else {
         return null;

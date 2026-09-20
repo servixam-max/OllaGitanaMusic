@@ -1,10 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/stage_theme.dart';
 
 class AppUpdater {
-  static const String currentVersion = "v1.0.6";
+  static const String currentVersion = "v1.0.7";
   static const String repoUrl = "https://api.github.com/repos/servixam-max/OllaGitanaMusic/releases/latest";
 
   /// Comprueba semánticamente si una versión es superior a otra (ej. v1.0.5 > v1.0.4)
@@ -26,6 +27,14 @@ class AppUpdater {
 
   /// Comprueba en GitHub Releases si hay una versión superior a la instalada
   static Future<Map<String, dynamic>?> checkForUpdates() async {
+    if (kIsWeb) {
+      return {
+        "success": true,
+        "hasUpdate": false,
+        "currentVersion": currentVersion,
+        "isWeb": true,
+      };
+    }
     try {
       final dio = Dio(BaseOptions(
         connectTimeout: const Duration(seconds: 10),
