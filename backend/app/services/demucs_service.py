@@ -14,10 +14,12 @@ from app.services.ws_manager import ws_manager
 
 class DemucsService:
     @classmethod
-    async def process_audio(cls, task_id: str, input_path: Path, model_name: str = "htdemucs"):
+    async def process_audio(cls, task_id: str, input_path: Path, model_name: str = "htdemucs_ft"):
         """
         Ejecuta la separación de pistas con Demucs en segundo plano con aceleración
         por hardware (Metal / MPS en Apple Silicon o CUDA) y progreso real en vivo vía WebSocket.
+        Incluye estabilización de transitorios (--shifts 1) y solapamiento del 50% (--overlap 0.5)
+        para máxima definición en batería/percusión sin comerse los golpes.
         """
         output_base_dir = settings.stems_dir / task_id
         output_base_dir.mkdir(parents=True, exist_ok=True)
@@ -46,34 +48,52 @@ class DemucsService:
         try:
             await update_status("processing", 5)
             
-            # Detectar si demucs está disponible en el entorno de Python
+            # Detectar el ejecutable de Python o entorno virtual donde demucs está instalado
+            python_exe = sys.executable
+            venv_python = Path(__file__).resolve().parents[3] / ".venv" / "bin" / "python"
+            if venv_python.exists():
+                python_exe = str(venv_python)
+
+            # Detectar si demucs está disponible
             has_demucs = False
             try:
-                import demucs
-                has_demucs = True
-            except ImportError:
+                check_proc = await asyncio.create_subprocess_exec(
+                    python_exe, "-c", "import demucs",
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL
+                )
+                await check_proc.wait()
+                has_demucs = (check_proc.returncode == 0)
+            except Exception:
                 has_demucs = shutil.which("demucs") is not None
 
             if has_demucs:
                 # Detectar aceleración por hardware
                 device = "cpu"
                 try:
-                    import torch
-                    if torch.backends.mps.is_available() and torch.backends.mps.is_built():
-                        device = "mps"
-                        print(f"[DemucsService] Usando aceleración Apple Silicon Metal (MPS) para tarea {task_id}")
-                    elif torch.cuda.is_available():
-                        device = "cuda"
-                        print(f"[DemucsService] Usando aceleración NVIDIA CUDA para tarea {task_id}")
+                    dev_proc = await asyncio.create_subprocess_exec(
+                        python_exe, "-c",
+                        "import torch; print('mps' if torch.backends.mps.is_available() and torch.backends.mps.is_built() else ('cuda' if torch.cuda.is_available() else 'cpu'))",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.DEVNULL
+                    )
+                    stdout, _ = await dev_proc.communicate()
+                    detected = stdout.decode().strip()
+                    if detected in ("mps", "cuda"):
+                        device = detected
+                        print(f"[DemucsService] Usando aceleración {device.upper()} para tarea {task_id}")
                 except Exception as e:
                     print(f"[DemucsService] Detección de aceleración: {e}, usando CPU")
 
                 cmd = [
-                    sys.executable, "-m", "demucs.separate",
+                    python_exe, "-m", "demucs.separate",
                     "-n", model_name,
                     "-d", device,
+                    "--shifts", "1",
+                    "--overlap", "0.5",
+                    "--clip-mode", "rescale",
                     "--mp3",
-                    "--mp3-bitrate", "192",
+                    "--mp3-bitrate", "320",
                     "-o", str(output_base_dir),
                     str(input_path)
                 ]
@@ -92,9 +112,14 @@ class DemucsService:
                 err_output = []
                 pct_regex = re.compile(r'(\d+)%')
 
+                # htdemucs_ft es un conjunto de 4 modelos especializados (uno por instrumento)
+                total_models = 4 if model_name == "htdemucs_ft" else 1
+                current_model = 0
+                last_sub_pct = 0
+
                 # Lectura en tiempo real de stderr para capturar el avance exacto de Demucs (tqdm)
                 async def read_stderr():
-                    nonlocal last_progress
+                    nonlocal last_progress, current_model, last_sub_pct
                     buffer = ""
                     while True:
                         chunk = await process.stderr.read(256)
@@ -107,8 +132,14 @@ class DemucsService:
                         matches = pct_regex.findall(buffer)
                         if matches:
                             raw_pct = int(matches[-1])
+                            # Si el porcentaje cae significativamente, significa que arrancó el siguiente sub-modelo
+                            if raw_pct < last_sub_pct - 25:
+                                current_model = min(current_model + 1, total_models - 1)
+                            last_sub_pct = raw_pct
+
+                            overall_pct = (current_model * 100 + raw_pct) / total_models
                             # Mapear de 5% a 95%
-                            scaled_pct = int(5 + (raw_pct * 0.90))
+                            scaled_pct = int(5 + (overall_pct * 0.90))
                             if scaled_pct > last_progress:
                                 last_progress = scaled_pct
                                 await update_status("processing", scaled_pct)

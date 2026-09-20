@@ -104,13 +104,13 @@ class _MixerScreenState extends State<MixerScreen> {
               style: TextStyle(color: StageTheme.textSecondary, fontSize: 13),
             ),
             const SizedBox(height: 16),
-            // Opción 1: 4 Pistas
+            // Opción 1: 4 Pistas Estudio Fine-Tuned (Recomendado)
             Material(
               color: StageTheme.surfaceElevated,
               borderRadius: BorderRadius.circular(12),
               child: InkWell(
                 borderRadius: BorderRadius.circular(12),
-                onTap: () => Navigator.pop(ctx, "htdemucs"),
+                onTap: () => Navigator.pop(ctx, "htdemucs_ft"),
                 child: Padding(
                   padding: const EdgeInsets.all(12.0),
                   child: Row(
@@ -118,15 +118,22 @@ class _MixerScreenState extends State<MixerScreen> {
                       const CircleAvatar(
                         backgroundColor: StageTheme.amberGold,
                         foregroundColor: Colors.black,
-                        child: Icon(Icons.music_note),
+                        child: Icon(Icons.album),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
-                          children: const [
-                            Text("4 Pistas Estándar", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                            Text("Voz, Batería, Bajo, Guitarras/Otros", style: TextStyle(color: StageTheme.textSecondary, fontSize: 12)),
+                          children: [
+                            Row(
+                              children: const [
+                                Text("4 Pistas Estudio", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                                SizedBox(width: 6),
+                                Text("(Recomendado)", style: TextStyle(color: StageTheme.amberGold, fontSize: 11, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            const Text("Máxima pegada y fidelidad en Batería, Voz, Bajo y Otros sin cortes ni artefactos.", style: TextStyle(color: StageTheme.textSecondary, fontSize: 12)),
                           ],
                         ),
                       ),
@@ -136,7 +143,7 @@ class _MixerScreenState extends State<MixerScreen> {
                 ),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             // Opción 2: 6 Pistas
             Material(
               color: StageTheme.surfaceElevated,
@@ -158,12 +165,47 @@ class _MixerScreenState extends State<MixerScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: const [
-                            Text("6 Pistas Avanzado", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                            Text("Voz, Batería, Bajo, Guitarra, Piano, Otros", style: TextStyle(color: StageTheme.textSecondary, fontSize: 12)),
+                            Text("6 Pistas Pro", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                            SizedBox(height: 2),
+                            Text("Voz, Batería, Bajo, Guitarra acústica/eléctrica, Piano, Otros.", style: TextStyle(color: StageTheme.textSecondary, fontSize: 12)),
                           ],
                         ),
                       ),
                       const Icon(Icons.chevron_right, color: StageTheme.flameOrange),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            // Opción 3: 4 Pistas Rápido
+            Material(
+              color: StageTheme.surfaceElevated,
+              borderRadius: BorderRadius.circular(12),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => Navigator.pop(ctx, "htdemucs"),
+                child: Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: Row(
+                    children: [
+                      const CircleAvatar(
+                        backgroundColor: StageTheme.electricGreen,
+                        foregroundColor: Colors.black,
+                        child: Icon(Icons.bolt),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: const [
+                            Text("4 Pistas Estándar (Rápido)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                            SizedBox(height: 2),
+                            Text("Separación más ligera para pruebas rápidas.", style: TextStyle(color: StageTheme.textSecondary, fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, color: StageTheme.electricGreen),
                     ],
                   ),
                 ),

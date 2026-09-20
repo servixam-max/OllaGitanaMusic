@@ -91,6 +91,16 @@ class MultitrackPlayer extends ChangeNotifier {
         }),
       );
 
+      // Orden estándar de estudio/mesa de mezclas
+      const preferredOrder = ['vocals', 'drums', 'bass', 'guitar', 'piano', 'other'];
+      loaded.sort((a, b) {
+        final idxA = preferredOrder.indexOf(a.name.toLowerCase());
+        final idxB = preferredOrder.indexOf(b.name.toLowerCase());
+        final orderA = idxA == -1 ? 99 : idxA;
+        final orderB = idxB == -1 ? 99 : idxB;
+        return orderA.compareTo(orderB);
+      });
+
       for (final t in loaded) {
         _tracks[t.name] = t;
       }

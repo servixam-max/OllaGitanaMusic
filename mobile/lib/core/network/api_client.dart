@@ -150,7 +150,7 @@ class ApiClient {
     String? filePath,
     Uint8List? fileBytes,
     String? fileName,
-    String model = "htdemucs",
+    String model = "htdemucs_ft",
     void Function(int sent, int total)? onProgress,
   }) async {
     try {

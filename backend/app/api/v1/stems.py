@@ -18,7 +18,7 @@ router = APIRouter(prefix="/stems", tags=["Stems Separator"])
 async def upload_audio_for_stems(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    model: str = Form("htdemucs"),  # "htdemucs" o "htdemucs_6s"
+    model: str = Form("htdemucs_ft"),  # "htdemucs_ft", "htdemucs_6s", "htdemucs"
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -27,8 +27,8 @@ async def upload_audio_for_stems(
     if not file.filename.lower().endswith((".mp3", ".wav", ".flac", ".ogg", ".m4a")):
         raise HTTPException(status_code=400, detail="Formato no soportado. Formatos válidos: MP3, WAV, FLAC, OGG, M4A")
 
-    if model not in ("htdemucs", "htdemucs_6s"):
-        model = "htdemucs"
+    if model not in ("htdemucs_ft", "htdemucs_6s", "htdemucs"):
+        model = "htdemucs_ft"
 
     task_id = str(uuid.uuid4())
     ext = file.filename.split(".")[-1]
