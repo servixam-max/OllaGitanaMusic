@@ -9,6 +9,7 @@ from app.api.v1.lyrics import router as lyrics_router
 from app.api.v1.stems import router as stems_router
 from app.api.v1.chords import router as chords_router
 from app.api.v1.repertoire import router as repertoire_router
+from app.api.v1.events import router as events_router
 from app.api.v1.ws import router as ws_router
 
 @asynccontextmanager
@@ -44,6 +45,7 @@ app.include_router(lyrics_router, prefix="/api/v1")
 app.include_router(stems_router, prefix="/api/v1")
 app.include_router(chords_router, prefix="/api/v1")
 app.include_router(repertoire_router, prefix="/api/v1")
+app.include_router(events_router, prefix="/api/v1")
 app.include_router(ws_router)
 
 @app.get("/")
@@ -58,6 +60,7 @@ async def root():
             "stems": "/api/v1/stems",
             "chords": "/api/v1/chords",
             "repertoire": "/api/v1/repertoire",
+            "events": "/api/v1/events",
             "websockets": ["/ws/tasks/{task_id}", "/ws/repertoire"]
         }
     }

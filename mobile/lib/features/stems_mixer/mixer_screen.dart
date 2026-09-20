@@ -175,7 +175,10 @@ class _MixerScreenState extends State<MixerScreen> {
     _loadRecentTasks();
   }
 
-  void _loadCompletedTaskStems(Map<String, dynamic> stems) {
+  String? _currentLoadedSongName;
+
+  void _loadCompletedTaskStems(String songName, Map<String, dynamic> stems) {
+    setState(() => _currentLoadedSongName = songName);
     final Map<String, String> fullUrls = {};
     stems.forEach((stemName, relativeUrl) {
       fullUrls[stemName] = _api.getFullUrl(relativeUrl);
@@ -232,8 +235,8 @@ class _MixerScreenState extends State<MixerScreen> {
         title: const Text("Mezclador de Ensayo"),
         actions: [
           IconButton(
-            icon: const Icon(Icons.history),
-            tooltip: "Canciones procesadas",
+            icon: const Icon(Icons.library_music),
+            tooltip: "Seleccionar canción",
             onPressed: () => _showRecentTasksModal(),
           ),
           IconButton(
@@ -250,44 +253,143 @@ class _MixerScreenState extends State<MixerScreen> {
 
           // Si hay pistas cargadas en el reproductor multipista
           if (_player.tracks.isNotEmpty) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: StageTheme.surfaceElevated,
+              child: Row(
+                children: [
+                  const Icon(Icons.music_note, color: StageTheme.flameOrange, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _currentLoadedSongName ?? "Canción cargada",
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  TextButton.icon(
+                    icon: const Icon(Icons.swap_horiz, size: 18),
+                    label: const Text("Cambiar"),
+                    style: TextButton.styleFrom(foregroundColor: StageTheme.amberGold),
+                    onPressed: () => _showRecentTasksModal(),
+                  ),
+                ],
+              ),
+            ),
             _buildMasterControls(),
             Expanded(child: _buildChannelStrips()),
           ] else if (!_isUploading && _activeTaskId == null)
             Expanded(
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24.0),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: Image.asset(
-                          "assets/images/band_hero.jpg",
-                          height: 140,
-                          width: double.infinity,
-                          fit: BoxFit.cover,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Image.asset(
+                        "assets/images/band_hero.jpg",
+                        height: 120,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      "Mezclador Multipista de Ensayo",
+                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      "Aísla pistas (Voz, Batería, Bajo, Guitarras/Otros) con IA para ensayar cualquier instrumento.",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: StageTheme.textSecondary, fontSize: 13),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      icon: const Icon(Icons.cloud_upload, size: 22),
+                      label: const Text("Subir Nueva Canción"),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: StageTheme.flameOrange,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      ),
+                      onPressed: _pickAndUploadAudio,
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Menú de canciones procesadas disponibles
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          "Canciones Listas para Mezclar",
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                         ),
+                        IconButton(
+                          icon: const Icon(Icons.refresh, size: 20, color: StageTheme.amberGold),
+                          tooltip: "Refrescar lista",
+                          onPressed: _loadRecentTasks,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+
+                    if (_recentTasks.isEmpty)
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: StageTheme.surfaceElevated,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Text(
+                          "Aún no hay canciones procesadas en el servidor.\nSube un archivo de audio para empezar.",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: StageTheme.textMuted),
+                        ),
+                      )
+                    else
+                      ListView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: _recentTasks.length,
+                        itemBuilder: (ctx, index) {
+                          final t = _recentTasks[index];
+                          final filename = t["filename"] ?? "Audio";
+                          final status = t["status"] ?? "";
+                          final stems = t["stems"] as Map<String, dynamic>? ?? {};
+                          final isCompleted = status == "completed";
+
+                          return Card(
+                            margin: const EdgeInsets.symmetric(vertical: 4),
+                            child: ListTile(
+                              leading: CircleAvatar(
+                                backgroundColor: isCompleted ? StageTheme.electricGreen.withOpacity(0.2) : StageTheme.amberGold.withOpacity(0.2),
+                                child: Icon(
+                                  isCompleted ? Icons.check : Icons.hourglass_top,
+                                  color: isCompleted ? StageTheme.electricGreen : StageTheme.amberGold,
+                                  size: 20,
+                                ),
+                              ),
+                              title: Text(filename, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                              subtitle: Text(
+                                isCompleted ? "4 pistas disponibles (Voz, Batería, Bajo, Otros)" : "Estado: $status",
+                                style: const TextStyle(fontSize: 12, color: StageTheme.textSecondary),
+                              ),
+                              trailing: isCompleted
+                                  ? ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: StageTheme.amberGold,
+                                        foregroundColor: Colors.black,
+                                      ),
+                                      child: const Text("Cargar", style: TextStyle(fontWeight: FontWeight.bold)),
+                                      onPressed: () => _loadCompletedTaskStems(filename, stems),
+                                    )
+                                  : null,
+                            ),
+                          );
+                        },
                       ),
-                      const SizedBox(height: 16),
-                      const Text(
-                        "Mezclador Multipista de Ensayo",
-                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        "Sube un archivo de audio (MP3/WAV) para que Demucs aísle las pistas (Voz, Batería, Bajo, Guitarras/Otros) y puedas ensayar con tu instrumento.",
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: StageTheme.textSecondary, height: 1.5),
-                      ),
-                      const SizedBox(height: 24),
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.cloud_upload, size: 24),
-                        label: const Text("Subir Canción para Ensayar"),
-                        onPressed: _pickAndUploadAudio,
-                      ),
-                    ],
-                  ),
+                  ],
                 ),
               ),
             ),

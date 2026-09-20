@@ -5,6 +5,7 @@ import 'features/lyrics/lyrics_screen.dart';
 import 'features/stems_mixer/mixer_screen.dart';
 import 'features/chords/chords_screen.dart';
 import 'features/repertoire/repertoire_screen.dart';
+import 'features/events/events_screen.dart';
 import 'features/settings/settings_screen.dart';
 
 void main() {
@@ -53,6 +54,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   final List<Widget> _screens = const [
     RepertoireScreen(),
+    EventsScreen(),
     MixerScreen(),
     LyricsScreen(),
     ChordsScreen(),
@@ -67,12 +69,22 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         children: _screens,
       ),
       bottomNavigationBar: BottomNavigationBar(
+        type: BottomNavigationBarType.fixed,
+        backgroundColor: StageTheme.surface,
+        selectedItemColor: StageTheme.flameOrange,
+        unselectedItemColor: StageTheme.textSecondary,
+        selectedFontSize: 11,
+        unselectedFontSize: 11,
         currentIndex: _currentIndex,
         onTap: (index) => setState(() => _currentIndex = index),
         items: const [
           BottomNavigationBarItem(
-            icon: Icon(Icons.how_to_vote),
+            icon: Icon(Icons.queue_music),
             label: "Repertorio",
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.celebration),
+            label: "Eventos",
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.tune),

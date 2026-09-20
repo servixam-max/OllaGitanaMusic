@@ -4,7 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../theme/stage_theme.dart';
 
 class AppUpdater {
-  static const String currentVersion = "v1.0.1";
+  static const String currentVersion = "v1.0.2";
   static const String repoUrl = "https://api.github.com/repos/servixam-max/OllaGitanaMusic/releases/latest";
 
   /// Comprueba en GitHub Releases si hay una versión superior a la instalada

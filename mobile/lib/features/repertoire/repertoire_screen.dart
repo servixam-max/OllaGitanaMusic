@@ -405,8 +405,10 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
 
   void _showAddSongDialog() {
     final TextEditingController searchCtrl = TextEditingController();
+    final AudioPlayer dialogPlayer = AudioPlayer();
     List<dynamic> spotifyResults = [];
     bool searching = false;
+    String? playingUrl;
 
     showModalBottomSheet(
       context: context,
@@ -416,6 +418,12 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setModalState) {
+            dialogPlayer.playerStateStream.listen((state) {
+              if (state.processingState == ProcessingState.completed) {
+                setModalState(() => playingUrl = null);
+              }
+            });
+
             Future<void> doSearch() async {
               final q = searchCtrl.text.trim();
               if (q.isEmpty) return;
@@ -427,6 +435,28 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
               });
             }
 
+            Future<void> toggleDialogPreview(String? url) async {
+              if (url == null || url.isEmpty) {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(content: Text("Esta canción no tiene preview de 30s disponible")),
+                );
+                return;
+              }
+              if (playingUrl == url) {
+                await dialogPlayer.stop();
+                setModalState(() => playingUrl = null);
+              } else {
+                await dialogPlayer.stop();
+                setModalState(() => playingUrl = url);
+                try {
+                  await dialogPlayer.setUrl(url);
+                  await dialogPlayer.play();
+                } catch (_) {
+                  setModalState(() => playingUrl = null);
+                }
+              }
+            }
+
             return Padding(
               padding: EdgeInsets.only(
                 left: 16,
@@ -435,7 +465,7 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                 bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
               ),
               child: SizedBox(
-                height: 500,
+                height: 520,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -450,7 +480,7 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                           child: TextField(
                             controller: searchCtrl,
                             decoration: InputDecoration(
-                              hintText: "Buscar en Spotify...",
+                              hintText: "Buscar canción o artista...",
                               filled: true,
                               fillColor: StageTheme.surfaceElevated,
                               prefixIcon: const Icon(Icons.search, color: StageTheme.flameOrange),
@@ -474,11 +504,13 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                     const SizedBox(height: 12),
                     Expanded(
                       child: spotifyResults.isEmpty
-                          ? const Center(child: Text("Busca un tema para importar título, carátula y audio de 30s", style: TextStyle(color: StageTheme.textMuted)))
+                          ? const Center(child: Text("Busca un tema para escuchar el preview de 30s y proponerlo", style: TextStyle(color: StageTheme.textMuted)))
                           : ListView.builder(
                               itemCount: spotifyResults.length,
                               itemBuilder: (ctx, index) {
                                 final track = spotifyResults[index];
+                                final isPlaying = playingUrl == track["preview_url"];
+
                                 return ListTile(
                                   leading: ClipRRect(
                                     borderRadius: BorderRadius.circular(6),
@@ -488,20 +520,38 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                                   ),
                                   title: Text(track["title"] ?? "", style: const TextStyle(fontWeight: FontWeight.bold)),
                                   subtitle: Text(track["artist"] ?? ""),
-                                  trailing: ElevatedButton(
-                                    child: const Text("Añadir"),
-                                    onPressed: () async {
-                                      await _api.createSongProposal(
-                                        title: track["title"],
-                                        artist: track["artist"],
-                                        album: track["album"],
-                                        coverUrl: track["cover_url"],
-                                        previewUrl: track["preview_url"],
-                                        spotifyId: track["spotify_id"],
-                                      );
-                                      Navigator.pop(ctx);
-                                      _loadSongs(silent: true);
-                                    },
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        iconSize: 36,
+                                        icon: Icon(
+                                          isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill,
+                                          color: track["preview_url"] != null
+                                              ? StageTheme.flameOrange
+                                              : StageTheme.textMuted,
+                                        ),
+                                        tooltip: "Escuchar preview de 30s",
+                                        onPressed: () => toggleDialogPreview(track["preview_url"]),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      ElevatedButton(
+                                        child: const Text("Añadir"),
+                                        onPressed: () async {
+                                          await dialogPlayer.stop();
+                                          await _api.createSongProposal(
+                                            title: track["title"],
+                                            artist: track["artist"],
+                                            album: track["album"],
+                                            coverUrl: track["cover_url"],
+                                            previewUrl: track["preview_url"],
+                                            spotifyId: track["spotify_id"],
+                                          );
+                                          Navigator.pop(ctx);
+                                          _loadSongs(silent: true);
+                                        },
+                                      ),
+                                    ],
                                   ),
                                 );
                               },
@@ -514,6 +564,8 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
           },
         );
       },
-    );
+    ).whenComplete(() {
+      dialogPlayer.dispose();
+    });
   }
 }

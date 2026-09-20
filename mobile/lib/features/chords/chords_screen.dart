@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/network/api_client.dart';
 import '../../core/theme/stage_theme.dart';
 
@@ -148,10 +149,18 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
                         ),
                         title: Text(item["title"] ?? "Sin título", style: const TextStyle(fontWeight: FontWeight.bold)),
                         subtitle: Text(item["artist"] ?? "Desconocido", style: const TextStyle(color: StageTheme.textSecondary)),
-                        trailing: const Chip(
-                          label: Text("Songsterr", style: TextStyle(fontSize: 11, color: Colors.white)),
-                          backgroundColor: StageTheme.surfaceElevated,
+                        trailing: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Chip(
+                              label: Text("Songsterr", style: TextStyle(fontSize: 11, color: Colors.white)),
+                              backgroundColor: StageTheme.surfaceElevated,
+                            ),
+                            SizedBox(width: 4),
+                            Icon(Icons.arrow_forward_ios, size: 14, color: StageTheme.textMuted),
+                          ],
                         ),
+                        onTap: () => _openChordDetails(item),
                       ),
                     );
                   },
@@ -164,6 +173,158 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
                 ),
         ),
       ],
+    );
+  }
+
+  void _openChordDetails(Map<String, dynamic> item) {
+    int transpose = 0;
+    final title = item["title"] ?? "Canción";
+    final artist = item["artist"] ?? "Artista";
+    final url = item["url"] ?? "https://www.songsterr.com";
+
+    // Acordes comunes de referencia para guitarra flamenca / española
+    final standardChords = ["Am", "G", "F", "E7", "C", "Dm", "E", "A7", "D", "Em"];
+    final notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+    String transposeChord(String chord, int semitones) {
+      if (semitones == 0) return chord;
+      for (int i = 0; i < notes.length; i++) {
+        final n = notes[i];
+        if (chord.startsWith(n)) {
+          final nextIndex = (i + semitones) % 12;
+          final adjustedIndex = nextIndex < 0 ? nextIndex + 12 : nextIndex;
+          final remainder = chord.substring(n.length);
+          return "${notes[adjustedIndex]}$remainder";
+        }
+      }
+      return chord;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: StageTheme.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            return Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: StageTheme.surfaceElevated,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.queue_music, color: StageTheme.amberGold, size: 32),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                            Text(artist, style: const TextStyle(fontSize: 15, color: StageTheme.textSecondary)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Controles de transporte
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: StageTheme.surfaceElevated,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text("Transporte (Cejilla):", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                        Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.remove_circle, color: StageTheme.flameOrange),
+                              onPressed: () => setSheetState(() => transpose--),
+                            ),
+                            Text(
+                              transpose == 0 ? "Original (0)" : (transpose > 0 ? "+$transpose" : "$transpose"),
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: StageTheme.amberGold),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.add_circle, color: StageTheme.flameOrange),
+                              onPressed: () => setSheetState(() => transpose++),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  const Text("Acordes de Referencia:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  const SizedBox(height: 8),
+
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: standardChords.map((ch) {
+                      final transposed = transposeChord(ch, transpose);
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: StageTheme.surfaceElevated,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: StageTheme.amberGold.withOpacity(0.5)),
+                        ),
+                        child: Text(
+                          transposed,
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: StageTheme.amberGold),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Botón para abrir la tablatura en Songsterr
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.open_in_new, size: 20),
+                      label: const Text("Abrir Tablatura Completa en Songsterr", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: StageTheme.flameOrange,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: () async {
+                        try {
+                          await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+                        } catch (_) {
+                          ScaffoldMessenger.of(ctx).showSnackBar(
+                            const SnackBar(content: Text("No se pudo abrir la tablatura")),
+                          );
+                        }
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 

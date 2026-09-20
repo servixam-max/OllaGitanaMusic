@@ -374,4 +374,85 @@ class ApiClient {
       return false;
     }
   }
+
+  // --- Módulo 5: Eventos, Bolos & Setlists ---
+  Future<List<dynamic>> getEvents() async {
+    try {
+      final response = await _dio.get("/api/v1/events");
+      final data = response.data as List<dynamic>?;
+      if (data != null) {
+        // Guardar en cache local
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString("cached_events", jsonEncode(data));
+        return data;
+      }
+    } catch (_) {}
+
+    // Fallback a cache local
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cached = prefs.getString("cached_events");
+      if (cached != null) {
+        return jsonDecode(cached) as List<dynamic>;
+      }
+    } catch (_) {}
+
+    return [];
+  }
+
+  Future<Map<String, dynamic>?> createEvent({
+    required String name,
+    required String eventDate,
+    String? location,
+    String? notes,
+    List<Map<String, dynamic>> setlist = const [],
+  }) async {
+    try {
+      final response = await _dio.post(
+        "/api/v1/events",
+        data: {
+          "name": name,
+          "event_date": eventDate,
+          "location": location,
+          "notes": notes,
+          "setlist": setlist,
+        },
+      );
+      return response.data;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> updateEvent(
+    String eventId, {
+    String? name,
+    String? eventDate,
+    String? location,
+    String? notes,
+    List<Map<String, dynamic>>? setlist,
+  }) async {
+    try {
+      final Map<String, dynamic> payload = {};
+      if (name != null) payload["name"] = name;
+      if (eventDate != null) payload["event_date"] = eventDate;
+      if (location != null) payload["location"] = location;
+      if (notes != null) payload["notes"] = notes;
+      if (setlist != null) payload["setlist"] = setlist;
+
+      final response = await _dio.put("/api/v1/events/$eventId", data: payload);
+      return response.data;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<bool> deleteEvent(String eventId) async {
+    try {
+      await _dio.delete("/api/v1/events/$eventId");
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 }

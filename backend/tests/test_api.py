@@ -84,3 +84,41 @@ async def test_stems_tasks_list():
         response = await client.get("/api/v1/stems/tasks")
         assert response.status_code == 200
         assert isinstance(response.json(), list)
+
+@pytest.mark.asyncio
+async def test_events_workflow():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Crear evento con setlist
+        event_payload = {
+            "name": "Concierto Chiringuito El Sol",
+            "event_date": "2026-10-24T21:00:00",
+            "location": "Málaga",
+            "notes": "Prueba de sonido 19:30",
+            "setlist": [
+                {"id": 1, "title": "Entre dos aguas", "artist": "Paco de Lucía"},
+                {"id": 2, "title": "Volando voy", "artist": "Camarón de la Isla"}
+            ]
+        }
+        res_create = await client.post("/api/v1/events", json=event_payload)
+        assert res_create.status_code == 200
+        created = res_create.json()
+        assert created["name"] == "Concierto Chiringuito El Sol"
+        assert len(created["setlist"]) == 2
+        event_id = created["id"]
+
+        # 2. Listar eventos
+        res_list = await client.get("/api/v1/events")
+        assert res_list.status_code == 200
+        events = res_list.json()
+        assert any(e["id"] == event_id for e in events)
+
+        # 3. Actualizar evento
+        res_update = await client.put(f"/api/v1/events/{event_id}", json={"location": "Torremolinos"})
+        assert res_update.status_code == 200
+        assert res_update.json()["location"] == "Torremolinos"
+
+        # 4. Eliminar evento
+        res_delete = await client.delete(f"/api/v1/events/{event_id}")
+        assert res_delete.status_code == 200
+
