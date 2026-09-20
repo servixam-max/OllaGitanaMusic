@@ -8,7 +8,7 @@ class ApiClient {
 
   late Dio _dio;
   late Dio _publicDio; // Cliente HTTP directo para fallbacks cuando el backend local no está encendido
-  String _baseUrl = "http://10.0.2.2:8000";
+  String _baseUrl = "https://servi.tail31979d.ts.net/olla";
   String _userName = "Músico Olla Gitana";
 
   ApiClient._internal() {
@@ -28,7 +28,7 @@ class ApiClient {
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    _baseUrl = prefs.getString("backend_url") ?? "http://10.0.2.2:8000";
+    _baseUrl = prefs.getString("backend_url") ?? "https://servi.tail31979d.ts.net/olla";
     _userName = prefs.getString("user_name") ?? "Músico Olla Gitana";
     _dio.options.baseUrl = _baseUrl;
   }
