@@ -1,8 +1,163 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/network/api_client.dart';
 import '../../core/theme/stage_theme.dart';
+
+// Modelo de acordes de guitarra para diagramas de mástil
+class ChordDiagramData {
+  final String name;
+  final List<int> frets; // -1: X (mute), 0: O (open), 1..5: traste
+  final int baseFret;
+  final List<int>? fingers;
+
+  const ChordDiagramData({
+    required this.name,
+    required this.frets,
+    this.baseFret = 1,
+    this.fingers,
+  });
+}
+
+// Diccionario de acordes estándar de guitarra (flamenca / española / acústica)
+const Map<String, ChordDiagramData> kGuitarChords = {
+  "Am": ChordDiagramData(name: "Am", frets: [-1, 0, 2, 2, 1, 0], fingers: [0, 0, 2, 3, 1, 0]),
+  "A": ChordDiagramData(name: "A", frets: [-1, 0, 2, 2, 2, 0], fingers: [0, 0, 1, 2, 3, 0]),
+  "A7": ChordDiagramData(name: "A7", frets: [-1, 0, 2, 0, 2, 0], fingers: [0, 0, 1, 0, 2, 0]),
+  "C": ChordDiagramData(name: "C", frets: [-1, 3, 2, 0, 1, 0], fingers: [0, 3, 2, 0, 1, 0]),
+  "C7": ChordDiagramData(name: "C7", frets: [-1, 3, 2, 3, 1, 0], fingers: [0, 3, 2, 4, 1, 0]),
+  "D": ChordDiagramData(name: "D", frets: [-1, -1, 0, 2, 3, 2], fingers: [0, 0, 0, 1, 3, 2]),
+  "Dm": ChordDiagramData(name: "Dm", frets: [-1, -1, 0, 2, 3, 1], fingers: [0, 0, 0, 2, 3, 1]),
+  "D7": ChordDiagramData(name: "D7", frets: [-1, -1, 0, 2, 1, 2], fingers: [0, 0, 0, 2, 1, 3]),
+  "E": ChordDiagramData(name: "E", frets: [0, 2, 2, 1, 0, 0], fingers: [0, 2, 3, 1, 0, 0]),
+  "Em": ChordDiagramData(name: "Em", frets: [0, 2, 2, 0, 0, 0], fingers: [0, 2, 3, 0, 0, 0]),
+  "E7": ChordDiagramData(name: "E7", frets: [0, 2, 0, 1, 0, 0], fingers: [0, 2, 0, 1, 0, 0]),
+  "F": ChordDiagramData(name: "F", frets: [1, 3, 3, 2, 1, 1], baseFret: 1, fingers: [1, 3, 4, 2, 1, 1]),
+  "F#m": ChordDiagramData(name: "F#m", frets: [2, 4, 4, 2, 2, 2], baseFret: 2, fingers: [1, 3, 4, 1, 1, 1]),
+  "G": ChordDiagramData(name: "G", frets: [3, 2, 0, 0, 0, 3], fingers: [2, 1, 0, 0, 0, 3]),
+  "G7": ChordDiagramData(name: "G7", frets: [3, 2, 0, 0, 0, 1], fingers: [3, 2, 0, 0, 0, 1]),
+  "B7": ChordDiagramData(name: "B7", frets: [-1, 2, 1, 2, 0, 2], fingers: [0, 2, 1, 3, 0, 4]),
+  "Bm": ChordDiagramData(name: "Bm", frets: [-1, 2, 4, 4, 3, 2], baseFret: 2, fingers: [0, 1, 3, 4, 2, 1]),
+  "B": ChordDiagramData(name: "B", frets: [-1, 2, 4, 4, 4, 2], baseFret: 2, fingers: [0, 1, 2, 3, 4, 1]),
+  "Bb": ChordDiagramData(name: "Bb", frets: [-1, 1, 3, 3, 3, 1], baseFret: 1, fingers: [0, 1, 2, 3, 4, 1]),
+  "F7": ChordDiagramData(name: "F7", frets: [1, 3, 1, 2, 1, 1], baseFret: 1, fingers: [1, 3, 1, 2, 1, 1]),
+};
+
+// Dibujante de diagrama de acordes de guitarra en lienzo (CustomPainter)
+class GuitarChordPainter extends CustomPainter {
+  final ChordDiagramData chord;
+
+  GuitarChordPainter({required this.chord});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paintFret = Paint()
+      ..color = Colors.white70
+      ..strokeWidth = 1.5;
+
+    final paintNut = Paint()
+      ..color = StageTheme.amberGold
+      ..strokeWidth = 4.0;
+
+    final paintString = Paint()
+      ..color = Colors.white54
+      ..strokeWidth = 1.2;
+
+    final paintDot = Paint()
+      ..color = StageTheme.flameOrange
+      ..style = PaintingStyle.fill;
+
+    final textPainter = TextPainter(
+      textDirection: TextDirection.ltr,
+      textAlign: TextAlign.center,
+    );
+
+    const int numStrings = 6;
+    const int numFrets = 4;
+    const double topMargin = 24.0;
+    const double leftMargin = 22.0;
+    const double rightMargin = 22.0;
+    const double bottomMargin = 16.0;
+
+    final double width = size.width - leftMargin - rightMargin;
+    final double height = size.height - topMargin - bottomMargin;
+    final double stringSpacing = width / (numStrings - 1);
+    final double fretSpacing = height / numFrets;
+
+    // Cejuela o traste base
+    if (chord.baseFret == 1) {
+      canvas.drawLine(
+        const Offset(leftMargin, topMargin),
+        Offset(leftMargin + width, topMargin),
+        paintNut,
+      );
+    } else {
+      canvas.drawLine(
+        const Offset(leftMargin, topMargin),
+        Offset(leftMargin + width, topMargin),
+        paintFret,
+      );
+      textPainter.text = TextSpan(
+        text: "${chord.baseFret}ª",
+        style: const TextStyle(color: StageTheme.amberGold, fontSize: 11, fontWeight: FontWeight.bold),
+      );
+      textPainter.layout();
+      textPainter.paint(canvas, Offset(leftMargin - 18, topMargin + fretSpacing / 2 - 6));
+    }
+
+    // Trastes horizontales
+    for (int i = 1; i <= numFrets; i++) {
+      final y = topMargin + i * fretSpacing;
+      canvas.drawLine(Offset(leftMargin, y), Offset(leftMargin + width, y), paintFret);
+    }
+
+    // Cuerdas verticales y digitación
+    for (int i = 0; i < numStrings; i++) {
+      final x = leftMargin + i * stringSpacing;
+      canvas.drawLine(Offset(x, topMargin), Offset(x, topMargin + height), paintString);
+
+      final fretVal = chord.frets.length > i ? chord.frets[i] : 0;
+
+      if (fretVal == -1) {
+        textPainter.text = const TextSpan(
+          text: "X",
+          style: TextStyle(color: StageTheme.alertRed, fontSize: 12, fontWeight: FontWeight.bold),
+        );
+        textPainter.layout();
+        textPainter.paint(canvas, Offset(x - textPainter.width / 2, 4));
+      } else if (fretVal == 0) {
+        textPainter.text = const TextSpan(
+          text: "O",
+          style: TextStyle(color: StageTheme.electricGreen, fontSize: 12, fontWeight: FontWeight.bold),
+        );
+        textPainter.layout();
+        textPainter.paint(canvas, Offset(x - textPainter.width / 2, 4));
+      } else {
+        final relativeFret = fretVal - chord.baseFret + 1;
+        if (relativeFret >= 1 && relativeFret <= numFrets) {
+          final dotY = topMargin + (relativeFret - 0.5) * fretSpacing;
+          canvas.drawCircle(Offset(x, dotY), 8, paintDot);
+
+          final finger = (chord.fingers != null && chord.fingers!.length > i) ? chord.fingers![i] : 0;
+          if (finger > 0) {
+            textPainter.text = TextSpan(
+              text: "$finger",
+              style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+            );
+            textPainter.layout();
+            textPainter.paint(canvas, Offset(x - textPainter.width / 2, dotY - textPainter.height / 2));
+          }
+        }
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant GuitarChordPainter oldDelegate) => oldDelegate.chord != chord;
+}
 
 class ChordsScreen extends StatefulWidget {
   const ChordsScreen({super.key});
@@ -15,6 +170,7 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
   late TabController _tabController;
   final TextEditingController _searchController = TextEditingController();
   final ApiClient _api = ApiClient();
+  final AudioPlayer _audioPlayer = AudioPlayer();
 
   // Estado pestaña búsqueda
   List<dynamic> _searchResults = [];
@@ -23,18 +179,106 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
   // Estado pestaña detector por audio
   bool _isAnalyzing = false;
   Map<String, dynamic>? _analysisResult;
+  List<dynamic> _chordHistory = [];
+  bool _isLoadingHistory = false;
+
+  // Estado del reproductor sincronizado
+  Duration _audioPosition = Duration.zero;
+  Duration _audioDuration = Duration.zero;
+  bool _isPlayingAudio = false;
+  String? _manuallySelectedChord;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+
+    _audioPlayer.positionStream.listen((pos) {
+      if (mounted) setState(() => _audioPosition = pos);
+    });
+
+    _audioPlayer.durationStream.listen((dur) {
+      if (mounted) setState(() => _audioDuration = dur ?? Duration.zero);
+    });
+
+    _audioPlayer.playerStateStream.listen((state) {
+      if (mounted) setState(() => _isPlayingAudio = state.playing);
+    });
+
+    _loadChordHistory();
   }
 
   @override
   void dispose() {
     _tabController.dispose();
     _searchController.dispose();
+    _audioPlayer.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadChordHistory() async {
+    setState(() => _isLoadingHistory = true);
+    final history = await _api.getChordHistory();
+    if (mounted) {
+      setState(() {
+        _chordHistory = history;
+        _isLoadingHistory = false;
+      });
+    }
+  }
+
+  Future<void> _deleteHistoryItem(String id, String filename) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: StageTheme.surface,
+        title: const Text("Eliminar Canción"),
+        content: Text("¿Deseas eliminar '$filename' de la biblioteca de acordes?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Cancelar", style: TextStyle(color: StageTheme.textSecondary)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: StageTheme.alertRed),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("Eliminar", style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      if (_analysisResult != null && _analysisResult!["id"] == id) {
+        await _audioPlayer.stop();
+        setState(() {
+          _analysisResult = null;
+          _manuallySelectedChord = null;
+        });
+      }
+      await _api.deleteChordAnalysis(id);
+      _loadChordHistory();
+    }
+  }
+
+  Future<void> _loadAnalysisIntoPlayer(Map<String, dynamic> analysis) async {
+    await _audioPlayer.stop();
+    setState(() {
+      _analysisResult = analysis;
+      _manuallySelectedChord = null;
+      _audioPosition = Duration.zero;
+      _audioDuration = Duration.zero;
+    });
+
+    final audioUrl = analysis["audio_url"];
+    if (audioUrl != null && audioUrl.toString().isNotEmpty) {
+      try {
+        final fullUrl = _api.getFullUrl(audioUrl);
+        await _audioPlayer.setUrl(fullUrl);
+      } catch (e) {
+        print("[ChordsScreen] Error cargando audio: $e");
+      }
+    }
   }
 
   Future<void> _searchChords() async {
@@ -68,6 +312,45 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
       _isAnalyzing = false;
       _analysisResult = analysis;
     });
+
+    if (analysis != null) {
+      _loadChordHistory();
+      _loadAnalysisIntoPlayer(analysis);
+    }
+  }
+
+  String? _getCurrentActiveChord() {
+    if (_manuallySelectedChord != null) return _manuallySelectedChord;
+    if (_analysisResult == null) return null;
+    final timeline = _analysisResult!["timeline"] as List<dynamic>? ?? [];
+    final currentSec = _audioPosition.inMilliseconds / 1000.0;
+    for (final seg in timeline) {
+      final start = (seg["start"] as num?)?.toDouble() ?? 0.0;
+      final end = (seg["end"] as num?)?.toDouble() ?? 0.0;
+      if (currentSec >= start && currentSec < end) {
+        return seg["chord"] as String?;
+      }
+    }
+    return _analysisResult!["estimated_key"];
+  }
+
+  ChordDiagramData? _getChordDiagramData(String? chordName) {
+    if (chordName == null || chordName.isEmpty) return null;
+    String clean = chordName.trim();
+    if (kGuitarChords.containsKey(clean)) return kGuitarChords[clean];
+
+    // Normalizar variaciones comunes (ej. Amin -> Am, Cmaj -> C, Emin -> Em)
+    if (clean.endsWith("min")) clean = "${clean.substring(0, clean.length - 3)}m";
+    if (clean.endsWith("maj")) clean = clean.substring(0, clean.length - 3);
+    if (kGuitarChords.containsKey(clean)) return kGuitarChords[clean];
+
+    return null;
+  }
+
+  String _formatDuration(Duration d) {
+    final minutes = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return "$minutes:$seconds";
   }
 
   @override
@@ -182,7 +465,6 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
     final artist = item["artist"] ?? "Artista";
     final url = item["url"] ?? "https://www.songsterr.com";
 
-    // Acordes comunes de referencia para guitarra flamenca / española
     final standardChords = ["Am", "G", "F", "E7", "C", "Dm", "E", "A7", "D", "Em"];
     final notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
@@ -239,7 +521,6 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
                   ),
                   const SizedBox(height: 20),
 
-                  // Controles de transporte
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                     decoration: BoxDecoration(
@@ -295,7 +576,6 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
                   ),
                   const SizedBox(height: 24),
 
-                  // Botón para abrir la tablatura en Songsterr
                   SizedBox(
                     width: double.infinity,
                     height: 48,
@@ -329,11 +609,15 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
   }
 
   Widget _buildAudioAnalysisTab() {
+    final activeChord = _getCurrentActiveChord();
+    final chordData = _getChordDiagramData(activeChord);
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // Banner de carga de audio para análisis
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -343,106 +627,348 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
             ),
             child: Column(
               children: [
-                const Icon(Icons.graphic_eq, size: 56, color: StageTheme.amberGold),
-                const SizedBox(height: 12),
+                const Icon(Icons.graphic_eq, size: 52, color: StageTheme.amberGold),
+                const SizedBox(height: 10),
                 const Text(
                   "Detección Armónica de Audio",
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 const Text(
-                  "Sube una grabación de un ensayo o una pista de audio para analizar sus cromagramas y predecir los acordes y la tonalidad dominante.",
+                  "Sube una grabación o canción para detectar acordes, tonalidad y reproducirla con seguimiento en tiempo real.",
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: StageTheme.textSecondary, height: 1.4),
+                  style: TextStyle(color: StageTheme.textSecondary, fontSize: 13, height: 1.3),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
                 ElevatedButton.icon(
                   icon: const Icon(Icons.upload_file),
                   label: const Text("Seleccionar Audio para Analizar"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: StageTheme.flameOrange,
+                    foregroundColor: Colors.white,
+                  ),
                   onPressed: _isAnalyzing ? null : _analyzeAudioFile,
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
 
           if (_isAnalyzing)
             const Center(
               child: Padding(
-                padding: EdgeInsets.all(32.0),
+                padding: EdgeInsets.all(28.0),
                 child: Column(
                   children: [
                     CircularProgressIndicator(color: StageTheme.flameOrange),
                     SizedBox(height: 16),
-                    Text("Analizando cromas y frecuencias armónicas con librosa..."),
+                    Text("Analizando cromagramas armónicos con librosa..."),
                   ],
                 ),
               ),
             ),
 
+          // VISTA ACTIVA: Reproductor Sincronizado + Diagrama de Acordes
           if (_analysisResult != null) ...[
-            // Tonalidad estimada
-            Card(
-              color: StageTheme.surfaceElevated,
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text("Tonalidad Estimada:", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: StageTheme.flameOrange,
-                        borderRadius: BorderRadius.circular(20),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: StageTheme.surfaceElevated,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: StageTheme.amberGold.withOpacity(0.4)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Título de la canción cargada y botón cerrar
+                  Row(
+                    children: [
+                      const Icon(Icons.music_note, color: StageTheme.flameOrange),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _analysisResult!["filename"] ?? "Audio Analizado",
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                      child: Text(
-                        _analysisResult!["estimated_key"] ?? "N/A",
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 20, color: StageTheme.textMuted),
+                        tooltip: "Cerrar reproductor",
+                        onPressed: () {
+                          _audioPlayer.stop();
+                          setState(() {
+                            _analysisResult = null;
+                            _manuallySelectedChord = null;
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                  const Divider(color: StageTheme.border),
+
+                  // Tonalidad dominante y cadencia
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text("Tonalidad Dominante:", style: TextStyle(color: StageTheme.textSecondary, fontSize: 13)),
+                          const SizedBox(height: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: StageTheme.flameOrange,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Text(
+                              _analysisResult!["estimated_key"] ?? "N/A",
+                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (activeChord != null)
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            const Text("Acorde Sonando:", style: TextStyle(color: StageTheme.textSecondary, fontSize: 13)),
+                            const SizedBox(height: 4),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: StageTheme.amberGold,
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: Text(
+                                activeChord,
+                                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black),
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Diagrama de mástil de guitarra para el acorde activo
+                  if (chordData != null)
+                    Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: StageTheme.surface,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: StageTheme.amberGold.withOpacity(0.3)),
+                        ),
+                        child: Column(
+                          children: [
+                            Text(
+                              "Posición en Guitarra: ${chordData.name}",
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: StageTheme.amberGold),
+                            ),
+                            const SizedBox(height: 8),
+                            CustomPaint(
+                              size: const Size(180, 160),
+                              painter: GuitarChordPainter(chord: chordData),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              "6ª (Mi) ➔ 1ª (mi)",
+                              style: TextStyle(fontSize: 11, color: StageTheme.textMuted),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ],
-                ),
+
+                  const SizedBox(height: 16),
+
+                  // Controles de reproducción sincronizada
+                  Row(
+                    children: [
+                      IconButton(
+                        iconSize: 42,
+                        icon: Icon(
+                          _isPlayingAudio ? Icons.pause_circle_filled : Icons.play_circle_fill,
+                          color: StageTheme.flameOrange,
+                        ),
+                        onPressed: () {
+                          if (_isPlayingAudio) {
+                            _audioPlayer.pause();
+                          } else {
+                            _audioPlayer.play();
+                          }
+                        },
+                      ),
+                      Expanded(
+                        child: Slider(
+                          value: _audioPosition.inMilliseconds.toDouble().clamp(0.0, _audioDuration.inMilliseconds.toDouble()),
+                          max: _audioDuration.inMilliseconds > 0 ? _audioDuration.inMilliseconds.toDouble() : 1.0,
+                          activeColor: StageTheme.amberGold,
+                          inactiveColor: StageTheme.border,
+                          onChanged: (val) {
+                            _audioPlayer.seek(Duration(milliseconds: val.toInt()));
+                          },
+                        ),
+                      ),
+                      Text(
+                        "${_formatDuration(_audioPosition)} / ${_formatDuration(_audioDuration)}",
+                        style: const TextStyle(fontSize: 12, color: StageTheme.textSecondary, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
 
-            // Línea temporal de acordes
+            // Línea temporal interactiva de acordes
             const Text(
-              "Línea Temporal de Acordes",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              "Línea Temporal de Acordes (Toca uno para saltar)",
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
 
             ...((_analysisResult!["timeline"] as List<dynamic>? ?? []).map((seg) {
-              final start = seg["start"];
-              final end = seg["end"];
-              final chord = seg["chord"];
-              final confidence = ((seg["confidence"] ?? 0.0) * 100).toInt();
+              final start = (seg["start"] as num?)?.toDouble() ?? 0.0;
+              final end = (seg["end"] as num?)?.toDouble() ?? 0.0;
+              final chord = seg["chord"] ?? "N/A";
+              final confidence = (((seg["confidence"] as num?)?.toDouble() ?? 0.0) * 100).toInt();
+
+              final currentSec = _audioPosition.inMilliseconds / 1000.0;
+              final isCurrent = currentSec >= start && currentSec < end;
 
               return Card(
                 margin: const EdgeInsets.symmetric(vertical: 4),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(
+                    color: isCurrent ? StageTheme.flameOrange : Colors.transparent,
+                    width: isCurrent ? 2.0 : 1.0,
+                  ),
+                ),
+                color: isCurrent ? StageTheme.flameOrange.withOpacity(0.15) : StageTheme.surfaceElevated,
                 child: ListTile(
                   leading: Container(
-                    width: 50,
-                    height: 50,
+                    width: 54,
+                    height: 54,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      color: StageTheme.surfaceElevated,
+                      color: isCurrent ? StageTheme.flameOrange : StageTheme.surface,
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: StageTheme.amberGold),
+                      border: Border.all(color: isCurrent ? StageTheme.amberGold : StageTheme.border),
                     ),
                     child: Text(
                       chord,
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: StageTheme.amberGold),
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: isCurrent ? Colors.white : StageTheme.amberGold,
+                      ),
                     ),
                   ),
-                  title: Text("$start s  -  $end s", style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text("Confianza: $confidence%", style: const TextStyle(color: StageTheme.textSecondary)),
+                  title: Text(
+                    "${start.toStringAsFixed(1)}s  -  ${end.toStringAsFixed(1)}s",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: isCurrent ? StageTheme.flameOrange : Colors.white,
+                    ),
+                  ),
+                  subtitle: Text("Confianza armónica: $confidence%", style: const TextStyle(color: StageTheme.textSecondary, fontSize: 12)),
+                  trailing: const Icon(Icons.play_arrow, color: StageTheme.amberGold, size: 20),
+                  onTap: () {
+                    _audioPlayer.seek(Duration(milliseconds: (start * 1000).toInt()));
+                    setState(() => _manuallySelectedChord = chord);
+                  },
                 ),
               );
             })),
+            const SizedBox(height: 24),
           ],
+
+          // SECCIÓN: Biblioteca de Canciones Analizadas (Persistencia)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                "Biblioteca de Canciones Analizadas",
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+              ),
+              IconButton(
+                icon: const Icon(Icons.refresh, color: StageTheme.amberGold, size: 20),
+                tooltip: "Refrescar biblioteca",
+                onPressed: _loadChordHistory,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          if (_isLoadingHistory)
+            const Center(child: Padding(padding: EdgeInsets.all(16.0), child: CircularProgressIndicator(color: StageTheme.amberGold)))
+          else if (_chordHistory.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: StageTheme.surfaceElevated,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                "Aún no hay canciones guardadas en la biblioteca.\nSube un archivo de audio para analizar sus acordes.",
+                textAlign: TextAlign.center,
+                style: TextStyle(color: StageTheme.textMuted, fontSize: 13),
+              ),
+            )
+          else
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _chordHistory.length,
+              itemBuilder: (ctx, index) {
+                final item = _chordHistory[index];
+                final filename = item["filename"] ?? "Audio";
+                final key = item["estimated_key"] ?? "N/A";
+                final durationSec = (item["duration"] as num?)?.toDouble() ?? 0.0;
+                final durationStr = _formatDuration(Duration(seconds: durationSec.toInt()));
+                final isCurrentlyLoaded = _analysisResult != null && _analysisResult!["id"] == item["id"];
+
+                return Card(
+                  margin: const EdgeInsets.symmetric(vertical: 4),
+                  color: isCurrentlyLoaded ? StageTheme.flameOrange.withOpacity(0.12) : null,
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: StageTheme.amberGold.withOpacity(0.2),
+                      child: Text(
+                        key,
+                        style: const TextStyle(color: StageTheme.amberGold, fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                    ),
+                    title: Text(filename, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    subtitle: Text("Tonalidad: $key • Duración: $durationStr", style: const TextStyle(fontSize: 12, color: StageTheme.textSecondary)),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, color: StageTheme.alertRed),
+                          tooltip: "Eliminar de la biblioteca",
+                          onPressed: () => _deleteHistoryItem(item["id"] ?? "", filename),
+                        ),
+                        const SizedBox(width: 4),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: isCurrentlyLoaded ? StageTheme.flameOrange : StageTheme.amberGold,
+                            foregroundColor: isCurrentlyLoaded ? Colors.white : Colors.black,
+                          ),
+                          child: Text(isCurrentlyLoaded ? "Cargada" : "Cargar", style: const TextStyle(fontWeight: FontWeight.bold)),
+                          onPressed: () => _loadAnalysisIntoPlayer(item),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
         ],
       ),
     );

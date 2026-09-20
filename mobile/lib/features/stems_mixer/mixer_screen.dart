@@ -228,6 +228,37 @@ class _MixerScreenState extends State<MixerScreen> {
     }
   }
 
+  Future<void> _deleteTask(String taskId, String filename) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: StageTheme.surface,
+        title: const Text("Eliminar Canción"),
+        content: Text("¿Deseas eliminar '$filename' y sus pistas separadas del servidor?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Cancelar", style: TextStyle(color: StageTheme.textSecondary)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: StageTheme.alertRed),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("Eliminar", style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      if (_currentLoadedSongName == filename) {
+        await _player.dispose();
+        setState(() => _currentLoadedSongName = null);
+      }
+      await _api.deleteStemTask(taskId);
+      _loadRecentTasks();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -375,16 +406,27 @@ class _MixerScreenState extends State<MixerScreen> {
                                 isCompleted ? "4 pistas disponibles (Voz, Batería, Bajo, Otros)" : "Estado: $status",
                                 style: const TextStyle(fontSize: 12, color: StageTheme.textSecondary),
                               ),
-                              trailing: isCompleted
-                                  ? ElevatedButton(
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, color: StageTheme.alertRed),
+                                    tooltip: "Eliminar canción",
+                                    onPressed: () => _deleteTask(t["id"] ?? "", filename),
+                                  ),
+                                  if (isCompleted) ...[
+                                    const SizedBox(width: 4),
+                                    ElevatedButton(
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: StageTheme.amberGold,
                                         foregroundColor: Colors.black,
                                       ),
                                       child: const Text("Cargar", style: TextStyle(fontWeight: FontWeight.bold)),
                                       onPressed: () => _loadCompletedTaskStems(filename, stems),
-                                    )
-                                  : null,
+                                    ),
+                                  ],
+                                ],
+                              ),
                             ),
                           );
                         },
@@ -583,15 +625,29 @@ class _MixerScreenState extends State<MixerScreen> {
                             ),
                             title: Text(t["filename"] ?? "Audio", style: const TextStyle(fontWeight: FontWeight.bold)),
                             subtitle: Text("Estado: ${t["status"]}"),
-                            trailing: isCompleted
-                                ? ElevatedButton(
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline, color: StageTheme.alertRed),
+                                  tooltip: "Eliminar",
+                                  onPressed: () {
+                                    Navigator.pop(ctx);
+                                    _deleteTask(t["id"] ?? "", t["filename"] ?? "Audio");
+                                  },
+                                ),
+                                if (isCompleted) ...[
+                                  const SizedBox(width: 4),
+                                  ElevatedButton(
                                     child: const Text("Cargar"),
                                     onPressed: () {
                                       Navigator.pop(ctx);
                                       _loadCompletedTaskStems(t["filename"] ?? "Audio", stems);
                                     },
-                                  )
-                                : null,
+                                  ),
+                                ],
+                              ],
+                            ),
                           );
                         },
                       ),

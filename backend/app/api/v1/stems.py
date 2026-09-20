@@ -99,3 +99,30 @@ async def list_stem_tasks(limit: int = 20, db: AsyncSession = Depends(get_db)):
         }
         for t in tasks
     ]
+
+@router.delete("/tasks/{task_id}")
+async def delete_stem_task(task_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Elimina una tarea de separación de pistas y borra sus archivos asociados de disco.
+    """
+    task = await db.get(StemTask, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Tarea no encontrada")
+
+    # Borrar archivos de stems
+    stems_folder = settings.stems_dir / task_id
+    if stems_folder.exists():
+        import shutil
+        shutil.rmtree(stems_folder, ignore_errors=True)
+
+    # Borrar archivo subido original
+    for upload_file in settings.upload_dir.glob(f"{task_id}.*"):
+        try:
+            upload_file.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    await db.delete(task)
+    await db.commit()
+
+    return {"message": "Canción y pistas eliminadas correctamente"}

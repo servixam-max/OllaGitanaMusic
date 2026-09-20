@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:flutter_rating_bar/flutter_rating_bar.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/theme/stage_theme.dart';
@@ -137,6 +138,52 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
       default:
         return status;
     }
+  Future<void> _shareRepertoireOnWhatsApp() async {
+    List<dynamic> songsToShare = _songs;
+    if (songsToShare.isEmpty) {
+      songsToShare = await _api.getRepertoireSongs();
+    }
+
+    if (songsToShare.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("No hay canciones en el repertorio para compartir")),
+        );
+      }
+      return;
+    }
+
+    // Filtrar para no incluir las descartadas si hay canciones activas
+    final activeSongs = songsToShare.where((s) => s["status"] != "descartada").toList();
+    final list = activeSongs.isNotEmpty ? activeSongs : songsToShare;
+
+    final StringBuffer msg = StringBuffer();
+    msg.writeln("🎸🔥 *OLLA GITANA - CATÁLOGO DE REPERTORIO* 🔥🎸\n");
+    msg.writeln("¡Hola! 👋 Aquí tienes nuestro repertorio musical disponible para que elijas las canciones que más te gusten para tu evento o celebración:\n");
+    msg.writeln("🎶 *CANCIONES DISPONIBLES:*");
+
+    for (int i = 0; i < list.length; i++) {
+      final song = list[i];
+      final title = song["title"] ?? "Sin título";
+      final artist = song["artist"] ?? "Artista";
+      msg.writeln("${i + 1}. *${title.trim()}* - ${artist.trim()}");
+    }
+
+    msg.writeln();
+    msg.writeln("✨ _Dinos cuáles son tus favoritas y preparamos el repertorio perfecto a tu medida._ 💃🕺🍻");
+    msg.writeln("📞 *Contacto / Reservas Olla Gitana*");
+
+    final whatsappUrl = "https://api.whatsapp.com/send?text=${Uri.encodeComponent(msg.toString())}";
+
+    try {
+      await launchUrl(Uri.parse(whatsappUrl), mode: LaunchMode.externalApplication);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("No se pudo abrir WhatsApp")),
+        );
+      }
+    }
   }
 
   @override
@@ -144,6 +191,13 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Sala de Ensayo & Votaciones"),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.share, color: StageTheme.amberGold),
+            tooltip: "Compartir repertorio por WhatsApp",
+            onPressed: _shareRepertoireOnWhatsApp,
+          ),
+        ],
       ),
       body: Column(
         children: [

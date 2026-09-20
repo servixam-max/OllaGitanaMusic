@@ -150,6 +150,15 @@ class ApiClient {
     }
   }
 
+  Future<bool> deleteStemTask(String taskId) async {
+    try {
+      await _dio.delete("/api/v1/stems/tasks/$taskId");
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   // --- Módulo 3: Acordes (Songsterr + Fallback directo) ---
   Future<List<dynamic>> searchChords(String query) async {
     try {
@@ -201,6 +210,24 @@ class ApiClient {
       return response.data;
     } catch (e) {
       return null;
+    }
+  }
+
+  Future<List<dynamic>> getChordHistory() async {
+    try {
+      final response = await _dio.get("/api/v1/chords/history");
+      return response.data as List<dynamic>? ?? [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<bool> deleteChordAnalysis(String id) async {
+    try {
+      await _dio.delete("/api/v1/chords/history/$id");
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 

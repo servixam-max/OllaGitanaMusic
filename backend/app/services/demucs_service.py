@@ -44,13 +44,20 @@ class DemucsService:
         try:
             await update_status("processing", 10)
             
-            # Verificar si demucs está instalado en el entorno
-            has_demucs = shutil.which("demucs") is not None
-            
+            # Verificar si demucs está disponible en el entorno de Python
+            has_demucs = False
+            try:
+                import demucs
+                has_demucs = True
+            except ImportError:
+                has_demucs = shutil.which("demucs") is not None
+
             if has_demucs:
                 cmd = [
                     sys.executable, "-m", "demucs.separate",
                     "-n", model_name,
+                    "--mp3",
+                    "--mp3-bitrate", "192",
                     "-o", str(output_base_dir),
                     str(input_path)
                 ]
@@ -76,38 +83,52 @@ class DemucsService:
                     await update_status("failed", 0, error=err_msg[:500])
                     return
             else:
-                # Si demucs no está instalado localmente (ej. dev mode sin Docker todavía),
-                # generamos simulación estructurada para pruebas de integración
-                print("[DemucsService] Demucs no detectado en PATH, generando stems de prueba...")
-                for p in [20, 40, 60, 80]:
-                    await asyncio.sleep(1)
-                    await update_status("processing", p)
-                
-                # Crear archivos wav dummy si no existen para que el reproductor pueda linkearlos
+                # Fallback con filtros de frecuencia por ffmpeg para no duplicar el audio
+                print("[DemucsService] Generando pistas filtradas por frecuencia con ffmpeg...")
                 model_dir = output_base_dir / model_name / input_path.stem
                 model_dir.mkdir(parents=True, exist_ok=True)
-                for stem_name in ["vocals", "drums", "bass", "other"]:
-                    dummy_file = model_dir / f"{stem_name}.wav"
-                    if not dummy_file.exists():
-                        shutil.copyfile(input_path, dummy_file)
+                
+                filters = {
+                    "bass": "lowpass=f=250",
+                    "vocals": "bandpass=f=1500:width_type=h:w=2000",
+                    "drums": "highpass=f=40,lowpass=f=6000",
+                    "other": "highpass=f=800"
+                }
 
-            # Buscar las pistas generadas en la carpeta de salida
+                for stem_name, audio_filter in filters.items():
+                    out_file = model_dir / f"{stem_name}.mp3"
+                    if not out_file.exists():
+                        proc = await asyncio.create_subprocess_exec(
+                            "ffmpeg", "-y", "-i", str(input_path),
+                            "-af", audio_filter,
+                            "-b:a", "192k",
+                            str(out_file),
+                            stdout=asyncio.subprocess.DEVNULL,
+                            stderr=asyncio.subprocess.DEVNULL
+                        )
+                        await proc.wait()
+
+            # Buscar las pistas generadas en la carpeta de salida (mp3 o wav)
             stems_dict = {}
             track_stem_dir = output_base_dir / model_name / input_path.stem
             
-            # Si demucs colocó los archivos en el subdirectorio del modelo
             if track_stem_dir.exists():
-                for file in track_stem_dir.glob("*.wav"):
-                    stems_dict[file.stem] = f"/static/stems/{task_id}/{model_name}/{input_path.stem}/{file.name}"
                 for file in track_stem_dir.glob("*.mp3"):
                     stems_dict[file.stem] = f"/static/stems/{task_id}/{model_name}/{input_path.stem}/{file.name}"
+                for file in track_stem_dir.glob("*.wav"):
+                    if file.stem not in stems_dict:
+                        stems_dict[file.stem] = f"/static/stems/{task_id}/{model_name}/{input_path.stem}/{file.name}"
             else:
-                # Búsqueda recursiva por si la estructura de carpetas difiere
-                for file in output_base_dir.rglob("*.wav"):
+                for file in output_base_dir.rglob("*.mp3"):
                     rel_path = file.relative_to(settings.stems_dir)
                     stems_dict[file.stem] = f"/static/stems/{rel_path}"
+                for file in output_base_dir.rglob("*.wav"):
+                    if file.stem not in stems_dict:
+                        rel_path = file.relative_to(settings.stems_dir)
+                        stems_dict[file.stem] = f"/static/stems/{rel_path}"
 
             await update_status("completed", 100, stems=stems_dict)
+            print(f"[DemucsService] Separación completada con éxito para tarea {task_id}: {stems_dict}")
             print(f"[DemucsService] Separación completada con éxito para tarea {task_id}: {stems_dict}")
 
         except Exception as e:
