@@ -111,6 +111,52 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
     }
   }
 
+  Future<void> _confirmDeleteSong(int songId, String title) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: StageTheme.surface,
+        title: const Text("Eliminar Canción"),
+        content: Text("¿Deseas eliminar '$title' de la lista de propuestas?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Cancelar", style: TextStyle(color: StageTheme.textSecondary)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: StageTheme.alertRed),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("Eliminar", style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      final success = await _api.deleteSong(songId);
+      if (success) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: StageTheme.electricGreen,
+              content: Text("'$title' eliminada correctamente"),
+            ),
+          );
+        }
+        _loadSongs();
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              backgroundColor: StageTheme.alertRed,
+              content: Text("No se pudo eliminar la canción"),
+            ),
+          );
+        }
+      }
+    }
+  }
+
   Color _getStatusColor(String status) {
     switch (status) {
       case "propuesta":
@@ -418,39 +464,50 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                                           ),
                                         ],
                                       ),
-                                      // Selector de estado
-                                      PopupMenuButton<String>(
-                                        onSelected: (newStatus) => _changeStatus(song["id"], newStatus),
-                                        itemBuilder: (ctx) => [
-                                          const PopupMenuItem(value: "propuesta", child: Text("Propuesta")),
-                                          const PopupMenuItem(value: "para_ensayar", child: Text("Para Ensayar")),
-                                          const PopupMenuItem(value: "en_repertorio", child: Text("En Repertorio")),
-                                          const PopupMenuItem(value: "descartada", child: Text("Descartada")),
-                                        ],
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                          decoration: BoxDecoration(
-                                            color: _getStatusColor(song["status"]).withOpacity(0.2),
-                                            borderRadius: BorderRadius.circular(12),
-                                            border: Border.all(color: _getStatusColor(song["status"])),
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Text(
-                                                _getStatusLabel(song["status"]),
-                                                style: TextStyle(
-                                                  color: _getStatusColor(song["status"]),
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 12,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 4),
-                                              Icon(Icons.arrow_drop_down, color: _getStatusColor(song["status"]), size: 16),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
+                                       // Selector de estado y botón de eliminar
+                                       Row(
+                                         mainAxisSize: MainAxisSize.min,
+                                         children: [
+                                           PopupMenuButton<String>(
+                                             onSelected: (newStatus) => _changeStatus(song["id"], newStatus),
+                                             itemBuilder: (ctx) => [
+                                               const PopupMenuItem(value: "propuesta", child: Text("Propuesta")),
+                                               const PopupMenuItem(value: "para_ensayar", child: Text("Para Ensayar")),
+                                               const PopupMenuItem(value: "en_repertorio", child: Text("En Repertorio")),
+                                               const PopupMenuItem(value: "descartada", child: Text("Descartada")),
+                                             ],
+                                             child: Container(
+                                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                               decoration: BoxDecoration(
+                                                 color: _getStatusColor(song["status"]).withOpacity(0.2),
+                                                 borderRadius: BorderRadius.circular(12),
+                                                 border: Border.all(color: _getStatusColor(song["status"])),
+                                               ),
+                                               child: Row(
+                                                 mainAxisSize: MainAxisSize.min,
+                                                 children: [
+                                                   Text(
+                                                     _getStatusLabel(song["status"]),
+                                                     style: TextStyle(
+                                                       color: _getStatusColor(song["status"]),
+                                                       fontWeight: FontWeight.bold,
+                                                       fontSize: 12,
+                                                     ),
+                                                   ),
+                                                   const SizedBox(width: 4),
+                                                   Icon(Icons.arrow_drop_down, color: _getStatusColor(song["status"]), size: 16),
+                                                 ],
+                                               ),
+                                             ),
+                                           ),
+                                           const SizedBox(width: 2),
+                                           IconButton(
+                                             icon: const Icon(Icons.delete_outline, color: StageTheme.alertRed, size: 20),
+                                             tooltip: "Eliminar canción",
+                                             onPressed: () => _confirmDeleteSong(song["id"], song["title"] ?? "Canción"),
+                                           ),
+                                         ],
+                                       ),
                                     ],
                                   ),
                                 ],
