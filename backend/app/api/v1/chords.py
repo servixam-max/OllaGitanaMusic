@@ -9,6 +9,7 @@ from sqlalchemy import select, desc
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.security import require_api_token
 from app.models.stem_task import StemTask
 from app.models.analyzed_song import AnalyzedSong
 from app.services.chord_service import ChordService
@@ -45,7 +46,11 @@ async def get_chord_history(db: AsyncSession = Depends(get_db)):
     ]
 
 @router.delete("/history/{id}")
-async def delete_chord_analysis(id: str, db: AsyncSession = Depends(get_db)):
+async def delete_chord_analysis(
+    id: str,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_api_token),
+):
     """
     Elimina una canción analizada de la biblioteca.
     """
@@ -70,7 +75,8 @@ async def delete_chord_analysis(id: str, db: AsyncSession = Depends(get_db)):
 async def extract_chords(
     file: Optional[UploadFile] = File(None),
     task_id: Optional[str] = Form(None),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_api_token),
 ):
     """
     Extrae la tonalidad y secuencia temporal de acordes mediante análisis armónico con librosa.
@@ -104,6 +110,15 @@ async def extract_chords(
         raise HTTPException(status_code=400, detail="Debe proporcionar un archivo de audio o un task_id existente")
 
     analysis = ChordService.extract_chords_from_audio(audio_path)
+
+    if analysis.get("error"):
+        # No persistir análisis fallidos ni inventar resultados
+        return {
+            "error": analysis.get("error"),
+            "timeline": [],
+            "estimated_key": "N/A",
+            "duration": analysis.get("duration", 0.0),
+        }
 
     # Persistir en la base de datos para historial y reproductor sincronizado
     audio_url = f"/static/uploads/{audio_path.name}"

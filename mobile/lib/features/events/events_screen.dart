@@ -572,7 +572,7 @@ class _EventsScreenState extends State<EventsScreen> {
                           end: Alignment.bottomCenter,
                           colors: [
                             Colors.transparent,
-                            Colors.black.withOpacity(0.85),
+                            Colors.black.withValues(alpha: 0.85),
                           ],
                         ),
                       ),

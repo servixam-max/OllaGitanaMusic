@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:flutter_rating_bar/flutter_rating_bar.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -29,7 +28,8 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
   _ViewMode _viewMode = _ViewMode.compact;
 
   int? _playingPreviewSongId;
-  WebSocketChannel? _wsChannel;
+  WebSocketReconnect? _wsChannel;
+  bool _wsConnected = true;
 
   static const List<(String, String, IconData)> _filters = [
     ("todas", "Todas", Icons.list_alt),
@@ -55,23 +55,27 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
   @override
   void dispose() {
     _previewPlayer.dispose();
-    _wsChannel?.sink.close();
+    _wsChannel?.dispose();
     super.dispose();
   }
 
   void _initWebSocket() {
-    final wsUrl = _api.getWebSocketUrl("/ws/repertoire");
-    try {
-      _wsChannel = WebSocketChannel.connect(Uri.parse(wsUrl));
-      _wsChannel!.stream.listen((message) {
-        final event = jsonDecode(message as String);
-        final eventType = event["event"] as String?;
-        if (eventType == "song_added" || eventType == "vote_updated" ||
-            eventType == "status_changed" || eventType == "song_deleted") {
-          _loadSongs(silent: true);
-        }
-      }, onError: (_) {});
-    } catch (_) {}
+    _wsChannel = _api.createReconnectingSocket(
+      "/ws/repertoire",
+      onStatusChange: (connected) {
+        if (mounted) setState(() => _wsConnected = connected);
+      },
+      onMessage: (message) {
+        try {
+          final event = jsonDecode(message);
+          final eventType = event["event"] as String?;
+          if (eventType == "song_added" || eventType == "vote_updated" ||
+              eventType == "status_changed" || eventType == "song_deleted") {
+            _loadSongs(silent: true);
+          }
+        } catch (_) {}
+      },
+    );
   }
 
   Future<void> _loadSongs({bool silent = false}) async {
@@ -193,21 +197,6 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
     }
   }
 
-  IconData _getStatusIcon(String status) {
-    switch (status) {
-      case "propuesta":
-        return Icons.thumb_up_outlined;
-      case "para_ensayar":
-        return Icons.queue_music;
-      case "en_repertorio":
-        return Icons.library_music;
-      case "descartada":
-        return Icons.thumb_down_outlined;
-      default:
-        return Icons.circle_outlined;
-    }
-  }
-
   Future<void> _shareRepertoireOnWhatsApp() async {
     List<dynamic> songsToShare = _songs;
     if (songsToShare.isEmpty) {
@@ -280,6 +269,26 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
       ),
       body: Column(
         children: [
+          // Aviso si se pierde la sincronización en vivo
+          if (!_wsConnected)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              color: StageTheme.alertRed.withValues(alpha: 0.15),
+              child: const Row(
+                children: [
+                  Icon(Icons.cloud_off, size: 16, color: StageTheme.alertRed),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "Sin conexión en vivo — reintentando sincronizar con la sala...",
+                      style: TextStyle(color: StageTheme.alertRed, fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
           // Filtros compactos tipo NavigationBar
           _buildFilterBar(),
 
@@ -479,7 +488,7 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                          color: statusColor.withOpacity(0.15),
+                          color: statusColor.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
@@ -648,7 +657,7 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: statusColor.withOpacity(0.2),
+          color: statusColor.withValues(alpha: 0.2),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: statusColor),
         ),
@@ -673,7 +682,6 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
 
   /// Bottom sheet con detalle completo de la canción (accesible desde la vista compacta)
   void _showSongDetailSheet(dynamic song) {
-    final isPlayingThis = _playingPreviewSongId == song["id"] as int?;
     showModalBottomSheet(
       context: context,
       backgroundColor: StageTheme.surface,
@@ -786,6 +794,38 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                             "Media: ${song["average_rating"]} (${song["total_votes"]} votos)",
                             style: const TextStyle(color: StageTheme.textSecondary, fontSize: 12),
                           ),
+                          if ((song["votes"] as List<dynamic>?)?.isNotEmpty == true) ...[
+                            const SizedBox(height: 6),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: (song["votes"] as List<dynamic>).map((v) {
+                                final name = v["user_name"] ?? "";
+                                final rating = v["rating"] ?? 0;
+                                final isMe = name.toString().toLowerCase() == _api.userName.toLowerCase();
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: isMe
+                                        ? StageTheme.amberGold.withValues(alpha: 0.2)
+                                        : StageTheme.surfaceElevated,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: isMe ? StageTheme.amberGold : StageTheme.border,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    "$name: $rating★",
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: isMe ? FontWeight.bold : FontWeight.normal,
+                                      color: isMe ? StageTheme.amberGold : StageTheme.textSecondary,
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ],
                         ],
                       ),
                       _buildStatusMenu(song),

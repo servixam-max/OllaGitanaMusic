@@ -1,11 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
+import '../../core/audio/stem_cache.dart';
 import '../../core/network/api_client.dart';
 import '../../core/theme/stage_theme.dart';
 import '../../core/updater/app_updater.dart';
 import '../../core/widgets/member_selector_dialog.dart';
-import '../../core/widgets/profile_app_bar_button.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -18,17 +18,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final ApiClient _api = ApiClient();
   final TextEditingController _urlController = TextEditingController();
   final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _tokenController = TextEditingController();
 
   bool _isTesting = false;
   String? _testResult;
   bool _isSuccess = false;
+  int _cacheSizeBytes = 0;
 
   @override
   void initState() {
     super.initState();
     _urlController.text = _api.baseUrl;
     _nameController.text = _api.userName;
+    _tokenController.text = _api.apiToken;
     _api.userNameNotifier.addListener(_onUserNameChanged);
+    _loadCacheSize();
+  }
+
+  Future<void> _loadCacheSize() async {
+    final size = await StemCache.instance.cacheSize();
+    if (mounted) setState(() => _cacheSizeBytes = size);
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes <= 0) return "0 MB";
+    if (bytes < 1024 * 1024) return "${(bytes / 1024).toStringAsFixed(0)} KB";
+    if (bytes < 1024 * 1024 * 1024) return "${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB";
+    return "${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB";
   }
 
   void _onUserNameChanged() {
@@ -45,6 +61,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _api.userNameNotifier.removeListener(_onUserNameChanged);
     _urlController.dispose();
     _nameController.dispose();
+    _tokenController.dispose();
     super.dispose();
   }
 
@@ -53,7 +70,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final name = _nameController.text.trim();
     if (url.isEmpty || name.isEmpty) return;
 
-    await _api.updateSettings(url, name);
+    await _api.updateSettings(url, name, apiToken: _tokenController.text);
     // Asegurar que también se registre como miembro en el backend si es nuevo
     _api.addBandMember(name);
 
@@ -110,9 +127,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Configuración & Conexión"),
-        actions: const [
-          ProfileAppBarButton(),
-        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -352,6 +366,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _tokenController,
+                      obscureText: true,
+                      decoration: InputDecoration(
+                        labelText: "Token de seguridad (opcional)",
+                        hintText: "Igual que API_TOKEN en el servidor",
+                        helperText: "Obligatorio si el servidor está expuesto por túnel a Internet",
+                        helperStyle: const TextStyle(fontSize: 11),
+                        filled: true,
+                        fillColor: StageTheme.surfaceElevated,
+                        prefixIcon: const Icon(Icons.lock_outline, size: 20),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
                     const SizedBox(height: 16),
                     Row(
                       children: [
@@ -383,8 +412,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
                           color: _isSuccess
-                              ? StageTheme.electricGreen.withOpacity(0.15)
-                              : StageTheme.alertRed.withOpacity(0.15),
+                              ? StageTheme.electricGreen.withValues(alpha: 0.15)
+                              : StageTheme.alertRed.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
                             color: _isSuccess ? StageTheme.electricGreen : StageTheme.alertRed,
@@ -399,6 +428,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       ),
                     ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Tarjeta de almacenamiento del ensayo (pistas cacheadas offline)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      "Almacenamiento de Ensayo",
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      "Las pistas que cargas en el mezclador se guardan en el teléfono para ensayar sin cortes y sin conexión. Ocupan espacio: puedes liberarlo aquí.",
+                      style: const TextStyle(color: StageTheme.textSecondary, fontSize: 13),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        const Icon(Icons.sd_storage, color: StageTheme.amberGold),
+                        const SizedBox(width: 8),
+                        Text(
+                          "Pistas guardadas: ${_formatBytes(_cacheSizeBytes)}",
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.delete_sweep),
+                      label: const Text("Liberar espacio de pistas"),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: StageTheme.alertRed,
+                        side: const BorderSide(color: StageTheme.alertRed),
+                      ),
+                      onPressed: () async {
+                        await StemCache.instance.clear();
+                        await _loadCacheSize();
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text("Caché de pistas liberada")),
+                          );
+                        }
+                      },
+                    ),
                   ],
                 ),
               ),

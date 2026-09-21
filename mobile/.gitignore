@@ -1,0 +1,10 @@
+
+# Claves de firma Android (NUNCA subir al repositorio)
+android/key.properties
+android/app/olla-gitana-key.jks
+android/app/*.jks
+android/app/*.keystore
+android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+android/gradlew
+android/gradlew.bat
+android/gradle/wrapper/gradle-wrapper.jar

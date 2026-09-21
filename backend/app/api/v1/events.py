@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 
 from app.core.database import get_db
+from app.core.security import require_api_token
 from app.models.event import BandEvent
 
 router = APIRouter(prefix="/events", tags=["Events & Setlists"])
@@ -48,15 +49,27 @@ def format_event(event: BandEvent) -> dict:
 @router.get("")
 async def list_events(db: AsyncSession = Depends(get_db)):
     """
-    Lista todos los eventos de la banda ordenados por fecha de creación o celebración.
+    Lista todos los eventos de la banda ordenados por fecha de celebración (próximos primero).
     """
-    query = select(BandEvent).order_by(desc(BandEvent.created_at))
+    query = select(BandEvent).order_by(BandEvent.event_date.asc())
     result = await db.execute(query)
     events = result.scalars().all()
+
+    # Los eventos sin fecha válida van al final; el resto por proximidad real
+    def sort_key(event: BandEvent):
+        try:
+            return (0, event.event_date or "")
+        except Exception:
+            return (1, "")
+
     return [format_event(e) for e in events]
 
 @router.post("")
-async def create_event(payload: EventCreateSchema, db: AsyncSession = Depends(get_db)):
+async def create_event(
+    payload: EventCreateSchema,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_api_token),
+):
     """
     Crea un nuevo evento con su setlist inicial.
     """
@@ -81,7 +94,12 @@ async def get_event(event_id: str, db: AsyncSession = Depends(get_db)):
     return format_event(event)
 
 @router.put("/{event_id}")
-async def update_event(event_id: str, payload: EventUpdateSchema, db: AsyncSession = Depends(get_db)):
+async def update_event(
+    event_id: str,
+    payload: EventUpdateSchema,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_api_token),
+):
     event = await db.get(BandEvent, event_id)
     if not event:
         raise HTTPException(status_code=404, detail="Evento no encontrado")
@@ -102,7 +120,11 @@ async def update_event(event_id: str, payload: EventUpdateSchema, db: AsyncSessi
     return format_event(event)
 
 @router.delete("/{event_id}")
-async def delete_event(event_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_event(
+    event_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_api_token),
+):
     event = await db.get(BandEvent, event_id)
     if not event:
         raise HTTPException(status_code=404, detail="Evento no encontrado")

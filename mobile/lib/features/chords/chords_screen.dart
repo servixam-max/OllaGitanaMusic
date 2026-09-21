@@ -44,6 +44,24 @@ const Map<String, ChordDiagramData> kGuitarChords = {
   "B": ChordDiagramData(name: "B", frets: [-1, 2, 4, 4, 4, 2], baseFret: 2, fingers: [0, 1, 2, 3, 4, 1]),
   "Bb": ChordDiagramData(name: "Bb", frets: [-1, 1, 3, 3, 3, 1], baseFret: 1, fingers: [0, 1, 2, 3, 4, 1]),
   "F7": ChordDiagramData(name: "F7", frets: [1, 3, 1, 2, 1, 1], baseFret: 1, fingers: [1, 3, 1, 2, 1, 1]),
+  "Am7": ChordDiagramData(name: "Am7", frets: [-1, 0, 2, 0, 1, 0], fingers: [0, 0, 2, 0, 1, 0]),
+  "Dm7": ChordDiagramData(name: "Dm7", frets: [-1, -1, 0, 2, 1, 1], fingers: [0, 0, 0, 2, 1, 1]),
+  "Em7": ChordDiagramData(name: "Em7", frets: [0, 2, 2, 0, 3, 0], fingers: [0, 2, 3, 0, 4, 0]),
+  "Gm": ChordDiagramData(name: "Gm", frets: [3, 5, 5, 3, 3, 3], baseFret: 3, fingers: [1, 3, 4, 1, 1, 1]),
+  "Cmaj7": ChordDiagramData(name: "Cmaj7", frets: [-1, 3, 2, 0, 0, 0], fingers: [0, 3, 2, 0, 0, 0]),
+  "Fmaj7": ChordDiagramData(name: "Fmaj7", frets: [-1, -1, 3, 2, 1, 0], fingers: [0, 0, 3, 2, 1, 0]),
+  "Gmaj7": ChordDiagramData(name: "Gmaj7", frets: [3, 2, 0, 0, 0, 2], fingers: [2, 1, 0, 0, 0, 3]),
+  "Amaj7": ChordDiagramData(name: "Amaj7", frets: [-1, 0, 2, 1, 2, 0], fingers: [0, 0, 2, 1, 3, 0]),
+  "Dmaj7": ChordDiagramData(name: "Dmaj7", frets: [-1, -1, 0, 2, 2, 2], fingers: [0, 0, 0, 1, 2, 3]),
+  "Emaj7": ChordDiagramData(name: "Emaj7", frets: [0, 2, 1, 1, 0, 0], fingers: [0, 3, 1, 2, 0, 0]),
+  "C#m": ChordDiagramData(name: "C#m", frets: [-1, 4, 6, 6, 5, 4], baseFret: 4, fingers: [0, 1, 3, 4, 2, 1]),
+  "G#m": ChordDiagramData(name: "G#m", frets: [4, 6, 6, 4, 4, 4], baseFret: 4, fingers: [1, 3, 4, 1, 1, 1]),
+  "F#m7": ChordDiagramData(name: "F#m7", frets: [2, 4, 2, 2, 2, 2], baseFret: 2, fingers: [1, 3, 1, 1, 1, 1]),
+  "Bm7": ChordDiagramData(name: "Bm7", frets: [-1, 2, 4, 2, 3, 2], baseFret: 2, fingers: [0, 1, 3, 1, 2, 1]),
+  "Cadd9": ChordDiagramData(name: "Cadd9", frets: [-1, 3, 2, 0, 3, 0], fingers: [0, 2, 1, 0, 3, 0]),
+  "Dsus4": ChordDiagramData(name: "Dsus4", frets: [-1, -1, 0, 2, 3, 3], fingers: [0, 0, 0, 1, 2, 3]),
+  "Asus4": ChordDiagramData(name: "Asus4", frets: [-1, 0, 2, 2, 3, 0], fingers: [0, 0, 1, 2, 3, 0]),
+  "Esus4": ChordDiagramData(name: "Esus4", frets: [0, 2, 2, 2, 0, 0], fingers: [0, 1, 2, 3, 0, 0]),
 };
 
 // Dibujante de diagrama de acordes de guitarra en lienzo (CustomPainter)
@@ -179,6 +197,7 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
   // Estado pestaña detector por audio
   bool _isAnalyzing = false;
   Map<String, dynamic>? _analysisResult;
+  String? _analysisError;
   List<dynamic> _chordHistory = [];
   bool _isLoadingHistory = false;
 
@@ -306,6 +325,7 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
     setState(() {
       _isAnalyzing = true;
       _analysisResult = null;
+      _analysisError = null;
     });
 
     final analysis = await _api.extractChords(
@@ -314,12 +334,16 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
       fileName: picked.name,
     );
 
+    final error = analysis?["error"] as String?;
     setState(() {
       _isAnalyzing = false;
-      _analysisResult = analysis;
+      _analysisResult = (analysis != null && error == null) ? analysis : null;
+      _analysisError = analysis == null
+          ? "No se pudo conectar con el servidor para analizar el audio."
+          : error;
     });
 
-    if (analysis != null) {
+    if (analysis != null && error == null) {
       _loadChordHistory();
       _loadAnalysisIntoPlayer(analysis);
     }
@@ -347,8 +371,20 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
 
     // Normalizar variaciones comunes (ej. Amin -> Am, Cmaj -> C, Emin -> Em)
     if (clean.endsWith("min")) clean = "${clean.substring(0, clean.length - 3)}m";
-    if (clean.endsWith("maj")) clean = clean.substring(0, clean.length - 3);
+    if (clean.endsWith("maj7")) {
+      // "maj7" es una calidad válida; solo normalizar el sufijo suelto "maj"
+    } else if (clean.endsWith("maj")) {
+      clean = clean.substring(0, clean.length - 3);
+    }
     if (kGuitarChords.containsKey(clean)) return kGuitarChords[clean];
+
+    // Si no hay diagrama exacto, intentar la tríada base (Am7 -> Am, F#m7 -> F#m)
+    for (final suffix in ["maj7", "m7", "7", "add9", "sus4", "dim"]) {
+      if (clean.endsWith(suffix)) {
+        final base = clean.substring(0, clean.length - suffix.length);
+        if (kGuitarChords.containsKey(base)) return kGuitarChords[base];
+      }
+    }
 
     return null;
   }
@@ -574,7 +610,7 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
                         decoration: BoxDecoration(
                           color: StageTheme.surfaceElevated,
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: StageTheme.amberGold.withOpacity(0.5)),
+                          border: Border.all(color: StageTheme.amberGold.withValues(alpha: 0.5)),
                         ),
                         child: Text(
                           transposed,
@@ -671,9 +707,32 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
                   children: [
                     CircularProgressIndicator(color: StageTheme.flameOrange),
                     SizedBox(height: 16),
-                    Text("Analizando cromagramas armónicos con librosa..."),
+                    Text("Detectando beats, acordes y tonalidad con librosa..."),
                   ],
                 ),
+              ),
+            ),
+
+          if (_analysisError != null)
+            Container(
+              margin: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: StageTheme.alertRed.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: StageTheme.alertRed),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.error_outline, color: StageTheme.alertRed),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      _analysisError!,
+                      style: const TextStyle(color: StageTheme.alertRed, fontSize: 13),
+                    ),
+                  ),
+                ],
               ),
             ),
 
@@ -684,7 +743,7 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
               decoration: BoxDecoration(
                 color: StageTheme.surfaceElevated,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: StageTheme.amberGold.withOpacity(0.4)),
+                border: Border.all(color: StageTheme.amberGold.withValues(alpha: 0.4)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -738,6 +797,18 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
                           ),
                         ],
                       ),
+                      if (_analysisResult!["tempo"] != null)
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            const Text("Tempo:", style: TextStyle(color: StageTheme.textSecondary, fontSize: 13)),
+                            const SizedBox(height: 4),
+                            Text(
+                              "${_analysisResult!["tempo"]} BPM",
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: StageTheme.electricGreen),
+                            ),
+                          ],
+                        ),
                       if (activeChord != null)
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
@@ -769,7 +840,7 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
                         decoration: BoxDecoration(
                           color: StageTheme.surface,
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: StageTheme.amberGold.withOpacity(0.3)),
+                          border: Border.all(color: StageTheme.amberGold.withValues(alpha: 0.3)),
                         ),
                         child: Column(
                           children: [
@@ -858,7 +929,7 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
                     width: isCurrent ? 2.0 : 1.0,
                   ),
                 ),
-                color: isCurrent ? StageTheme.flameOrange.withOpacity(0.15) : StageTheme.surfaceElevated,
+                color: isCurrent ? StageTheme.flameOrange.withValues(alpha: 0.15) : StageTheme.surfaceElevated,
                 child: ListTile(
                   leading: Container(
                     width: 54,
@@ -944,10 +1015,10 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
 
                 return Card(
                   margin: const EdgeInsets.symmetric(vertical: 4),
-                  color: isCurrentlyLoaded ? StageTheme.flameOrange.withOpacity(0.12) : null,
+                  color: isCurrentlyLoaded ? StageTheme.flameOrange.withValues(alpha: 0.12) : null,
                   child: ListTile(
                     leading: CircleAvatar(
-                      backgroundColor: StageTheme.amberGold.withOpacity(0.2),
+                      backgroundColor: StageTheme.amberGold.withValues(alpha: 0.2),
                       child: Text(
                         key,
                         style: const TextStyle(color: StageTheme.amberGold, fontWeight: FontWeight.bold, fontSize: 14),

@@ -122,3 +122,49 @@ async def test_events_workflow():
         res_delete = await client.delete(f"/api/v1/events/{event_id}")
         assert res_delete.status_code == 200
 
+
+@pytest.mark.asyncio
+async def test_stems_presets_endpoint():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/v1/stems/presets")
+        assert response.status_code == 200
+        data = response.json()
+        assert "presets" in data
+        assert data["default"] == "hybrid"
+        keys = {p["key"] for p in data["presets"]}
+        assert {"fast", "balanced", "max", "six", "hybrid", "karaoke"}.issubset(keys)
+
+
+@pytest.mark.asyncio
+async def test_stems_upload_rejects_bad_extension():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        files = {"file": ("documento.pdf", b"%PDF-1.4 fake", "application/pdf")}
+        response = await client.post("/api/v1/stems/upload", files=files, data={"preset": "fast"})
+        assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_stem_task_retry_not_found():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/api/v1/stems/tasks/no-existe/retry")
+        assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_events_ordered_by_event_date():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        await client.post("/api/v1/events", json={
+            "name": "Evento Tardío", "event_date": "2099-12-31T23:00:00"
+        })
+        await client.post("/api/v1/events", json={
+            "name": "Evento Temprano", "event_date": "2030-01-01T20:00:00"
+        })
+        res = await client.get("/api/v1/events")
+        assert res.status_code == 200
+        events = res.json()
+        dates = [e["event_date"] for e in events]
+        assert dates == sorted(dates)

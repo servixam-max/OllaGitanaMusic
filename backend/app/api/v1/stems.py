@@ -1,7 +1,7 @@
 import json
 import uuid
 import aiofiles
-from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from pydantic import BaseModel
@@ -9,58 +9,132 @@ from typing import Optional
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.security import require_api_token
 from app.models.stem_task import StemTask
-from app.services.demucs_service import DemucsService
+from app.services.demucs_service import PRESETS, DEFAULT_PRESET, get_preset
+from app.services.stem_queue import stem_queue
 
 router = APIRouter(prefix="/stems", tags=["Stems Separator"])
+
+ALLOWED_EXTENSIONS = (".mp3", ".wav", ".flac", ".ogg", ".m4a")
+
+
+@router.get("/presets")
+async def list_presets():
+    """Lista los presets de calidad disponibles para la separación de pistas."""
+    return {
+        "default": DEFAULT_PRESET,
+        "presets": [
+            {
+                "key": key,
+                "label": preset["label"],
+                "description": preset["description"],
+                "model": preset["model"],
+                "format": preset["format"],
+                "shifts": preset["shifts"],
+                "overlap": preset["overlap"],
+            }
+            for key, preset in PRESETS.items()
+        ],
+    }
 
 
 @router.post("/upload")
 async def upload_audio_for_stems(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     collection_name: str = Form(""),
-    db: AsyncSession = Depends(get_db)
+    preset: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_api_token),
 ):
     """
-    Sube un archivo de audio (MP3, WAV, etc.) y lanza la separación de pistas con Demucs en segundo plano.
-    Siempre usa htdemucs_6s: 6 pistas de máxima calidad (Voz, Batería, Bajo, Guitarra, Piano, Otros).
+    Sube un archivo de audio y lo encola para separación de pistas.
+    La separación se ejecuta de una en una (cola con worker único) para no degradar la calidad.
     """
-    if not file.filename.lower().endswith((".mp3", ".wav", ".flac", ".ogg", ".m4a")):
+    if not file.filename.lower().endswith(ALLOWED_EXTENSIONS):
         raise HTTPException(status_code=400, detail="Formato no soportado. Formatos válidos: MP3, WAV, FLAC, OGG, M4A")
+
+    preset_key, _preset = get_preset(preset)
+
+    # Comprobar espacio libre en disco antes de aceptar el archivo (mínimo 2 GB)
+    try:
+        import shutil as _shutil
+        free_bytes = _shutil.disk_usage(settings.upload_dir).free
+        if free_bytes < 2 * 1024 * 1024 * 1024:
+            raise HTTPException(status_code=507, detail="Espacio insuficiente en el servidor (menos de 2 GB libres)")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
 
     task_id = str(uuid.uuid4())
     ext = file.filename.split(".")[-1]
     input_filename = f"{task_id}.{ext}"
     input_path = settings.upload_dir / input_filename
 
-    # Guardar archivo en disco
+    # Guardar archivo en disco con límite de tamaño (600 MB)
+    max_bytes = 600 * 1024 * 1024
+    written = 0
     async with aiofiles.open(input_path, "wb") as out_file:
-        while chunk := await file.read(1024 * 1024):  # 1MB por chunk
+        while chunk := await file.read(1024 * 1024):
+            written += len(chunk)
+            if written > max_bytes:
+                await out_file.close()
+                input_path.unlink(missing_ok=True)
+                raise HTTPException(status_code=413, detail="Archivo demasiado grande (máximo 600 MB)")
             await out_file.write(chunk)
 
-    # Crear registro en la base de datos
     task = StemTask(
         id=task_id,
         original_filename=file.filename,
         collection_name=collection_name.strip() if collection_name and collection_name.strip() else None,
-        status="pending",
-        progress=0
+        status="queued",
+        progress=0,
+        preset=preset_key,
     )
     db.add(task)
     await db.commit()
 
-    # Lanzar la separación en segundo plano con el mejor modelo
-    background_tasks.add_task(DemucsService.process_audio, task_id, input_path, "htdemucs_6s")
+    position = stem_queue.enqueue(task_id, preset_key)
 
     return {
         "task_id": task_id,
         "filename": file.filename,
         "collection_name": task.collection_name,
-        "status": "pending",
-        "message": "Archivo recibido. Separación de pistas iniciada en el servidor.",
-        "ws_url": f"/ws/tasks/{task_id}"
+        "preset": preset_key,
+        "status": "queued",
+        "queue_position": position,
+        "message": "Archivo recibido. Separación en cola." if position > 1 else "Archivo recibido. Separación iniciada.",
+        "ws_url": f"/ws/tasks/{task_id}",
     }
+
+
+@router.post("/tasks/{task_id}/retry")
+async def retry_stem_task(
+    task_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_api_token),
+):
+    """
+    Reintenta una separación fallida o interrumpida reutilizando el audio ya subido.
+    """
+    task = await db.get(StemTask, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Tarea no encontrada")
+
+    if task.status in ("processing", "queued"):
+        raise HTTPException(status_code=409, detail="La tarea ya está en proceso")
+
+    if not list(settings.upload_dir.glob(f"{task_id}.*")):
+        raise HTTPException(status_code=404, detail="El audio original ya no está disponible en el servidor")
+
+    task.status = "queued"
+    task.progress = 0
+    task.error_message = None
+    await db.commit()
+
+    position = stem_queue.enqueue(task_id, task.preset)
+    return {"task_id": task_id, "status": "queued", "queue_position": position}
 
 
 @router.get("/tasks/{task_id}")
@@ -74,16 +148,20 @@ async def get_stem_task(task_id: str, db: AsyncSession = Depends(get_db)):
 
     stems = json.loads(task.stems_json) if task.stems_json else {}
 
-    return {
+    response = {
         "task_id": task.id,
         "filename": task.original_filename,
         "collection_name": task.collection_name,
+        "preset": task.preset,
         "status": task.status,
         "progress": task.progress,
         "stems": stems,
         "error": task.error_message,
-        "created_at": task.created_at.isoformat()
+        "created_at": task.created_at.isoformat(),
     }
+    if task.status == "queued":
+        response["queue_position"] = stem_queue.queued_position(task_id)
+    return response
 
 
 @router.get("/tasks")
@@ -101,10 +179,13 @@ async def list_stem_tasks(limit: int = 50, db: AsyncSession = Depends(get_db)):
             "task_id": t.id,
             "filename": t.original_filename,
             "collection_name": t.collection_name,
+            "preset": t.preset,
             "status": t.status,
             "progress": t.progress,
+            "queue_position": stem_queue.queued_position(t.id) if t.status == "queued" else None,
             "stems": json.loads(t.stems_json) if t.stems_json else {},
-            "created_at": t.created_at.isoformat()
+            "error": t.error_message,
+            "created_at": t.created_at.isoformat(),
         }
         for t in tasks
     ]
@@ -115,7 +196,12 @@ class CollectionUpdate(BaseModel):
 
 
 @router.patch("/tasks/{task_id}/collection")
-async def update_task_collection(task_id: str, body: CollectionUpdate, db: AsyncSession = Depends(get_db)):
+async def update_task_collection(
+    task_id: str,
+    body: CollectionUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_api_token),
+):
     """
     Asigna o cambia la colección/grupo de una canción.
     """
@@ -144,7 +230,11 @@ async def list_collections(db: AsyncSession = Depends(get_db)):
 
 
 @router.delete("/tasks/{task_id}")
-async def delete_stem_task(task_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_stem_task(
+    task_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_api_token),
+):
     """
     Elimina una tarea de separación de pistas y borra sus archivos asociados de disco.
     """
@@ -152,13 +242,11 @@ async def delete_stem_task(task_id: str, db: AsyncSession = Depends(get_db)):
     if not task:
         raise HTTPException(status_code=404, detail="Tarea no encontrada")
 
-    # Borrar archivos de stems
     stems_folder = settings.stems_dir / task_id
     if stems_folder.exists():
         import shutil
         shutil.rmtree(stems_folder, ignore_errors=True)
 
-    # Borrar archivo subido original
     for upload_file in settings.upload_dir.glob(f"{task_id}.*"):
         try:
             upload_file.unlink(missing_ok=True)

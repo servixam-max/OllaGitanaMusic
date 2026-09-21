@@ -7,8 +7,8 @@ plugins {
 
 android {
     namespace = "com.ollagitana.music"
-    compileSdk = 35
-    ndkVersion = "25.1.8937393"
+    compileSdk = 36
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
@@ -21,24 +21,34 @@ android {
 
     defaultConfig {
         applicationId = "com.ollagitana.music"
-        minSdk = 21
-        targetSdk = 35
+        minSdkVersion = flutter.minSdkVersion
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
+    def keystorePropertiesFile = rootProject.file("key.properties")
+    def keystoreProperties = new Properties()
+    if (keystorePropertiesFile.exists()) {
+        keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+    }
+
     signingConfigs {
         release {
-            storeFile file("olla-gitana-key.jks")
-            storePassword "ollagitana2026"
-            keyAlias "ollagitana"
-            keyPassword "ollagitana2026"
+            if (keystorePropertiesFile.exists() && file("olla-gitana-key.jks").exists()) {
+                storeFile file("olla-gitana-key.jks")
+                storePassword keystoreProperties["storePassword"]
+                keyAlias keystoreProperties["keyAlias"]
+                keyPassword keystoreProperties["keyPassword"]
+            }
         }
     }
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.release
+            // Firmar con la clave de release si está disponible; si no, usar la de debug
+            // (permite a cualquiera compilar el proyecto sin la clave privada).
+            signingConfig = (file("olla-gitana-key.jks").exists()) ? signingConfigs.release : signingConfigs.debug
         }
     }
 }

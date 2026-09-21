@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../core/audio/multitrack_player.dart';
 import '../../core/network/api_client.dart';
@@ -28,8 +28,9 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
   // Estado de la tarea activa de separación
   String? _activeTaskId;
   int _separationProgress = 0;
+  int? _queuePosition;
   String _taskStatus = "";
-  WebSocketChannel? _wsChannel;
+  WebSocketReconnect? _wsChannel;
   Timer? _pollTimer;
   bool _isRecoveringTask = false; // Indica que se encontró tarea en progreso al entrar
 
@@ -37,11 +38,16 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
   List<dynamic> _recentTasks = [];
   String? _currentLoadedSongName;
   Map<String, bool> _collectionExpanded = {};
+  List<dynamic> _presets = [];
+  String _selectedPreset = "hybrid";
 
   // Barra de progreso sin tirones
   double? _draggingPositionMs;
 
   static const String _prefActiveTaskKey = "mixer_active_task_id";
+  static const String _prefPresetKey = "mixer_default_preset";
+
+  bool get _isKaraokeActive => _player.tracks.keys.every((k) => k == "vocals" || k == "instrumental");
 
   @override
   void initState() {
@@ -56,8 +62,9 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _player.removeListener(_onPlayerStateChanged);
     _player.dispose();
-    _wsChannel?.sink.close();
+    _wsChannel?.dispose();
     _pollTimer?.cancel();
+    WakelockPlus.disable();
     super.dispose();
   }
 
@@ -73,8 +80,17 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
     if (mounted) setState(() {});
   }
 
-  /// Inicialización: carga tareas y re-engancha si hay una tarea en progreso
+  /// Inicialización: carga tareas, presets y re-engancha si hay una tarea en progreso
   Future<void> _initMixer() async {
+    final presets = await _api.getStemPresets();
+    final prefs = await SharedPreferences.getInstance();
+    final savedPreset = prefs.getString(_prefPresetKey);
+    if (mounted) {
+      setState(() {
+        _presets = presets;
+        _selectedPreset = savedPreset ?? "hybrid";
+      });
+    }
     await _loadRecentTasks();
     await _syncActiveTask();
   }
@@ -91,10 +107,11 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
     final prefs = await SharedPreferences.getInstance();
     String? savedTaskId = prefs.getString(_prefActiveTaskKey);
 
-    // 2. Si no hay guardado, buscar en la lista del servidor si hay alguna "processing"
+    // 2. Si no hay guardado, buscar en la lista del servidor si hay alguna en curso
     if (savedTaskId == null) {
       final tasks = await _api.getRecentStemTasks();
-      final processing = tasks.where((t) => t["status"] == "processing" || t["status"] == "pending").toList();
+      final processing = tasks.where((t) =>
+          t["status"] == "processing" || t["status"] == "pending" || t["status"] == "queued").toList();
       if (processing.isNotEmpty) {
         savedTaskId = processing.first["task_id"] as String?;
       }
@@ -113,15 +130,15 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
       await _loadRecentTasks();
       return;
     }
-    if (status == "failed") {
+    if (status == "failed" || status == "interrupted") {
       await prefs.remove(_prefActiveTaskKey);
-      setState(() => _taskStatus = "La separación anterior falló.");
+      setState(() => _taskStatus = "La separación anterior no terminó. Reintenta desde la lista.");
       await _loadRecentTasks();
       return;
     }
 
     // 4. La tarea sigue en progreso — reconectar
-    if (status == "processing" || status == "pending") {
+    if (status == "processing" || status == "pending" || status == "queued") {
       setState(() => _isRecoveringTask = true);
       _listenToTaskProgress(savedTaskId, recovered: true);
     }
@@ -134,9 +151,61 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _pickPreset() async {
+    final chosen = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: StageTheme.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text("Calidad de Separación", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            const Text(
+              "Más calidad implica más tiempo de proceso. Se puede cambiar para cada canción.",
+              style: TextStyle(color: StageTheme.textSecondary, fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            ..._presets.map((p) {
+              final key = p["key"] as String? ?? "";
+              final isSelected = key == _selectedPreset;
+              return ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                  isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                  color: isSelected ? StageTheme.amberGold : StageTheme.textMuted,
+                ),
+                title: Text(p["label"] ?? key, style: const TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: Text(
+                  p["description"] ?? "",
+                  style: const TextStyle(fontSize: 12, color: StageTheme.textSecondary),
+                ),
+                onTap: () => Navigator.pop(ctx, key),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+
+    if (chosen != null) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefPresetKey, chosen);
+      setState(() => _selectedPreset = chosen);
+    }
+  }
+
   /// Muestra un diálogo para pedir el nombre de la colección (opcional) antes de subir
   Future<String?> _askCollectionName() async {
     final controller = TextEditingController();
+    final presetLabel = _presets.firstWhere(
+      (p) => p["key"] == _selectedPreset,
+      orElse: () => {"label": _selectedPreset},
+    )["label"];
+
     return showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -157,8 +226,38 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              "La IA separará la canción en 6 pistas independientes:\nVoz, Batería, Bajo, Guitarra, Piano y Otros.",
+              "La IA separará la canción en pistas independientes (voz, batería, bajo, guitarra, piano...).",
               style: TextStyle(color: StageTheme.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            InkWell(
+              onTap: () async {
+                Navigator.pop(ctx);
+                await _pickPreset();
+                _pickAndUploadAudio();
+              },
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: StageTheme.surfaceElevated,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: StageTheme.amberGold.withValues(alpha: 0.5)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.tune, size: 18, color: StageTheme.amberGold),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        "Calidad: $presetLabel",
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right, size: 18, color: StageTheme.textMuted),
+                  ],
+                ),
+              ),
             ),
             const SizedBox(height: 16),
             TextField(
@@ -212,6 +311,7 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
       _isUploading = true;
       _uploadProgress = 0;
       _separationProgress = 0;
+      _queuePosition = null;
       _taskStatus = "Subiendo archivo...";
     });
 
@@ -220,6 +320,7 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
       fileBytes: picked.bytes,
       fileName: picked.name,
       collectionName: collectionResult.isNotEmpty ? collectionResult : null,
+      preset: _selectedPreset,
       onProgress: (sent, total) {
         if (total > 0 && mounted) {
           setState(() => _uploadProgress = ((sent / total) * 100).toInt());
@@ -239,7 +340,7 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Error al subir el archivo de audio")),
+          const SnackBar(content: Text("Error al subir el archivo de audio. Comprueba el servidor y el token.")),
         );
       }
     }
@@ -251,60 +352,45 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
       _isRecoveringTask = recovered;
       _taskStatus = recovered
           ? "Retomando separación en curso..."
-          : "Iniciando separación con IA (6 pistas Demucs)...";
+          : "Iniciando separación con IA...";
       _separationProgress = recovered ? _separationProgress : 5;
     });
 
-    _wsChannel?.sink.close();
+    _wsChannel?.dispose();
     _pollTimer?.cancel();
 
-    final wsUrl = _api.getWebSocketUrl("/ws/tasks/$taskId");
-
-    bool wsWorking = false;
-
-    try {
-      _wsChannel = WebSocketChannel.connect(Uri.parse(wsUrl));
-      _wsChannel!.stream.listen(
-        (data) {
-          wsWorking = true;
-          final payload = jsonDecode(data as String);
+    _wsChannel = _api.createReconnectingSocket(
+      "/ws/tasks/$taskId",
+      onMessage: (message) {
+        try {
+          final payload = jsonDecode(message);
           final progress = (payload["progress"] as num?)?.toInt() ?? 0;
           final status = payload["status"] as String? ?? "";
           final stems = payload["stems"] as Map<String, dynamic>?;
 
-          if (mounted) {
-            setState(() {
-              _separationProgress = progress;
-              _taskStatus = "Separando pistas ($progress%)...";
-            });
+          if (!mounted) return;
+          setState(() {
+            _separationProgress = progress;
+            _queuePosition = null;
+            _taskStatus = status == "queued" ? "En cola de espera..." : "Separando pistas ($progress%)...";
+          });
 
-            if (status == "completed" && stems != null && stems.isNotEmpty) {
-              _onSeparationCompleted(stems);
-            } else if (status == "failed") {
-              _clearActiveTask();
-              setState(() => _taskStatus = "Error en la separación.");
-            }
+          if (status == "completed" && stems != null && stems.isNotEmpty) {
+            _onSeparationCompleted(stems);
+          } else if (status == "failed") {
+            _clearActiveTask();
+            setState(() => _taskStatus = "Error en la separación. Puedes reintentar desde la lista.");
           }
-        },
-        onError: (_) => _startPollingFallback(taskId),
-        onDone: () {
-          // WS cerrado — si no completó, hacer polling
-          if (_activeTaskId == taskId && mounted && !wsWorking) {
-            _startPollingFallback(taskId);
-          }
-        },
-        cancelOnError: false,
-      );
+        } catch (_) {}
+      },
+    );
 
-      // Si en 8s el WS no ha recibido nada, activar polling de respaldo
-      Future.delayed(const Duration(seconds: 8), () {
-        if (mounted && _activeTaskId == taskId && !wsWorking) {
-          _startPollingFallback(taskId);
-        }
-      });
-    } catch (_) {
-      _startPollingFallback(taskId);
-    }
+    // Si en 8s el WS no ha recibido nada, activar polling de respaldo
+    Future.delayed(const Duration(seconds: 8), () {
+      if (mounted && _activeTaskId == taskId) {
+        _startPollingFallback(taskId);
+      }
+    });
   }
 
   void _startPollingFallback(String taskId) {
@@ -320,20 +406,26 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
       final status = task["status"] as String? ?? "";
       final progress = (task["progress"] as num?)?.toInt() ?? 0;
       final stems = task["stems"] as Map<String, dynamic>?;
+      final queuePos = (task["queue_position"] as num?)?.toInt();
 
       if (mounted) {
         setState(() {
           _separationProgress = progress;
-          _taskStatus = "Procesando ($progress%)...";
+          _queuePosition = queuePos;
+          _taskStatus = status == "queued"
+              ? "En cola de espera${queuePos != null ? ' (posición $queuePos)' : ''}..."
+              : "Procesando ($progress%)...";
         });
 
         if (status == "completed" && stems != null && stems.isNotEmpty) {
           timer.cancel();
           _onSeparationCompleted(stems);
-        } else if (status == "failed") {
+        } else if (status == "failed" || status == "interrupted") {
           timer.cancel();
           _clearActiveTask();
-          setState(() => _taskStatus = "Error en la separación.");
+          setState(() => _taskStatus = status == "interrupted"
+              ? "Interrumpida por reinicio del servidor. Reintenta desde la lista."
+              : "Error en la separación. Reintenta desde la lista.");
         }
       }
     });
@@ -373,6 +465,25 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
     _player.loadStems(fullUrls);
   }
 
+  Future<void> _retryTask(String taskId) async {
+    final res = await _api.retryStemTask(taskId);
+    if (res != null) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefActiveTaskKey, taskId);
+      _listenToTaskProgress(taskId);
+      _loadRecentTasks();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Separación reencolada. Se reutilizará lo ya procesado.")),
+        );
+      }
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("No se pudo reintentar (el audio original ya no está en el servidor)")),
+      );
+    }
+  }
+
   String _formatDuration(Duration d) {
     final minutes = d.inMinutes.remainder(60).toString().padLeft(2, '0');
     final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
@@ -383,6 +494,8 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
     switch (stemName.toLowerCase()) {
       case 'vocals':
         return Icons.mic;
+      case 'instrumental':
+        return Icons.queue_music;
       case 'drums':
         return Icons.album;
       case 'bass':
@@ -400,14 +513,16 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
     switch (stemName.toLowerCase()) {
       case 'vocals':
         return StageTheme.amberGold;
+      case 'instrumental':
+        return StageTheme.neonBlue;
       case 'drums':
         return StageTheme.flameOrange;
       case 'bass':
         return StageTheme.electricGreen;
       case 'guitar':
-        return const Color(0xFF00B0FF);
+        return const Color(0xFF4FC3F7);
       case 'piano':
-        return const Color(0xFFE040FB);
+        return const Color(0xFFCE93D8);
       default:
         return StageTheme.textSecondary;
     }
@@ -417,6 +532,8 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
     switch (stemName.toLowerCase()) {
       case 'vocals':
         return "Voz";
+      case 'instrumental':
+        return "Instrumental (Karaoke)";
       case 'drums':
         return "Batería / Percusión";
       case 'bass':
@@ -506,6 +623,14 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
     }
   }
 
+  void _toggleWakelock(bool enabled) {
+    if (enabled) {
+      WakelockPlus.enable();
+    } else {
+      WakelockPlus.disable();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final hasActiveTask = _activeTaskId != null;
@@ -542,10 +667,20 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
                   const Icon(Icons.music_note, color: StageTheme.flameOrange, size: 20),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(
-                      _currentLoadedSongName ?? "Canción cargada",
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                      overflow: TextOverflow.ellipsis,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _currentLoadedSongName ?? "Canción cargada",
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (_isKaraokeActive)
+                          const Text(
+                            "Modo Karaoke: voz e instrumental",
+                            style: TextStyle(color: StageTheme.neonBlue, fontSize: 11, fontWeight: FontWeight.bold),
+                          ),
+                      ],
                     ),
                   ),
                   TextButton.icon(
@@ -559,7 +694,30 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
             ),
             _buildMasterControls(),
             Expanded(child: _buildChannelStrips()),
-          ] else if (!_isUploading && !hasActiveTask)
+          ] else if (_player.isLoading)
+            Expanded(
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 220,
+                      child: LinearProgressIndicator(
+                        value: _player.loadingProgress > 0 ? _player.loadingProgress : null,
+                        backgroundColor: StageTheme.border,
+                        color: StageTheme.flameOrange,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      "Preparando pistas para ensayo offline... ${(_player.loadingProgress * 100).toInt()}%",
+                      style: const TextStyle(color: StageTheme.textSecondary, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else if (!_isUploading && !hasActiveTask)
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(16.0),
@@ -581,7 +739,7 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
                     ),
                     const SizedBox(height: 6),
                     const Text(
-                      "Aísla pistas (Voz, Batería, Bajo, Guitarra, Piano, Otros) con IA para ensayar cualquier instrumento.",
+                      "Aísla pistas con IA para ensayar cualquier instrumento, con bucle A-B y precisión de muestra.",
                       textAlign: TextAlign.center,
                       style: TextStyle(color: StageTheme.textSecondary, fontSize: 13),
                     ),
@@ -642,6 +800,13 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
                         textAlign: TextAlign.center,
                         style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                       ),
+                      if (_queuePosition != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          "Posición en cola: $_queuePosition",
+                          style: const TextStyle(color: StageTheme.amberGold, fontSize: 13, fontWeight: FontWeight.bold),
+                        ),
+                      ],
                       if (_isRecoveringTask) ...[
                         const SizedBox(height: 8),
                         const Text(
@@ -758,8 +923,11 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
     final status = t["status"] as String? ?? "";
     final stems = t["stems"] as Map<String, dynamic>? ?? {};
     final collection = t["collection_name"] as String?;
+    final preset = t["preset"] as String?;
+    final error = t["error"] as String?;
     final isCompleted = status == "completed";
-    final isProcessing = status == "processing" || status == "pending";
+    final isProcessing = status == "processing" || status == "pending" || status == "queued";
+    final canRetry = status == "failed" || status == "interrupted" || status == "pending";
     final stemCount = stems.length;
 
     return Padding(
@@ -768,10 +936,10 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
         contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         leading: CircleAvatar(
           backgroundColor: isCompleted
-              ? StageTheme.electricGreen.withOpacity(0.2)
+              ? StageTheme.electricGreen.withValues(alpha: 0.2)
               : isProcessing
-                  ? StageTheme.amberGold.withOpacity(0.2)
-                  : StageTheme.alertRed.withOpacity(0.2),
+                  ? StageTheme.amberGold.withValues(alpha: 0.2)
+                  : StageTheme.alertRed.withValues(alpha: 0.2),
           child: Icon(
             isCompleted
                 ? Icons.check
@@ -789,12 +957,15 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
         title: Text(filename, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
         subtitle: Text(
           isCompleted
-              ? "$stemCount pistas: ${stems.keys.map(_getStemLabel).join(', ')}"
+              ? "$stemCount pistas${preset != null ? ' · $preset' : ''}: ${stems.keys.map(_getStemLabel).join(', ')}"
               : isProcessing
-                  ? "Procesando..."
-                  : "Estado: $status",
-          style: const TextStyle(fontSize: 11, color: StageTheme.textSecondary),
-          maxLines: 1,
+                  ? (status == "queued" ? "En cola..." : "Procesando...")
+                  : (error ?? "Estado: $status"),
+          style: TextStyle(
+            fontSize: 11,
+            color: isCompleted ? StageTheme.textSecondary : (error != null ? StageTheme.alertRed : StageTheme.textSecondary),
+          ),
+          maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),
         trailing: Row(
@@ -812,6 +983,13 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
               tooltip: "Eliminar",
               onPressed: () => _deleteTask(taskId, filename),
             ),
+            // Reintentar si falló o se interrumpió
+            if (canRetry)
+              IconButton(
+                icon: const Icon(Icons.refresh, size: 20, color: StageTheme.amberGold),
+                tooltip: "Reintentar separación",
+                onPressed: () => _retryTask(taskId),
+              ),
             // Cargar si está completa
             if (isCompleted) ...[
               const SizedBox(width: 2),
@@ -834,7 +1012,7 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
 
   Widget _buildProgressBanner() {
     final progress = _isUploading ? _uploadProgress : _separationProgress;
-    final isIndeterminate = _activeTaskId != null && _separationProgress <= 5;
+    final isIndeterminate = !_isUploading && _separationProgress <= 5 && _queuePosition != null;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -949,8 +1127,10 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
                 onPressed: () {
                   if (_player.isPlaying) {
                     _player.pause();
+                    _toggleWakelock(false);
                   } else {
                     _player.play();
+                    _toggleWakelock(true);
                   }
                 },
               ),
@@ -999,7 +1179,7 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                     ),
                     backgroundColor: _player.speed != 1.0
-                        ? StageTheme.amberGold.withOpacity(0.2)
+                        ? StageTheme.amberGold.withValues(alpha: 0.2)
                         : StageTheme.surfaceElevated,
                     side: BorderSide(
                       color: _player.speed != 1.0 ? StageTheme.amberGold : StageTheme.border,
@@ -1055,6 +1235,15 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
                   backgroundColor: StageTheme.surfaceElevated,
                   onPressed: _player.resetMix,
                 ),
+                if (_player.hasAnyNudge) ...[
+                  const SizedBox(width: 6),
+                  ActionChip(
+                    avatar: const Icon(Icons.timer_outlined, size: 16, color: StageTheme.amberGold),
+                    label: const Text("Ajuste fino activo", style: TextStyle(fontSize: 12)),
+                    backgroundColor: StageTheme.amberGold.withValues(alpha: 0.2),
+                    onPressed: _player.clearNudges,
+                  ),
+                ],
               ],
             ),
           ),
@@ -1110,85 +1299,117 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
                 color: track.isSolo
                     ? StageTheme.amberGold
                     : track.isMuted
-                        ? StageTheme.alertRed.withOpacity(0.5)
+                        ? StageTheme.alertRed.withValues(alpha: 0.5)
                         : StageTheme.border,
                 width: track.isSolo ? 1.5 : 1.0,
               ),
             ),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Row(
+              child: Column(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: accentColor.withOpacity(0.18),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(_getStemIcon(track.name), color: accentColor, size: 26),
-                  ),
-                  const SizedBox(width: 12),
-
-                  Expanded(
-                    flex: 2,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _getStemLabel(track.name),
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: accentColor.withValues(alpha: 0.18),
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        Text(
-                          isSilencedBySolo
-                              ? "Silenciado por Solo"
-                              : "${(track.volume * 100).toInt()}%",
-                          style: TextStyle(
-                            color: isSilencedBySolo ? StageTheme.alertRed : StageTheme.textSecondary,
-                            fontSize: 11,
+                        child: Icon(_getStemIcon(track.name), color: accentColor, size: 26),
+                      ),
+                      const SizedBox(width: 12),
+
+                      Expanded(
+                        flex: 2,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _getStemLabel(track.name),
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                            ),
+                            Text(
+                              isSilencedBySolo
+                                  ? "Silenciado por Solo"
+                                  : "${(track.volume * 100).toInt()}%"
+                                      "${track.nudge != Duration.zero ? ' · ${track.nudge.inMilliseconds > 0 ? '+' : ''}${track.nudge.inMilliseconds}ms' : ''}",
+                              style: TextStyle(
+                                color: isSilencedBySolo ? StageTheme.alertRed : StageTheme.textSecondary,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      Expanded(
+                        flex: 3,
+                        child: Slider(
+                          value: track.volume,
+                          activeColor: accentColor,
+                          onChanged: (val) => _player.setTrackVolume(track.name, val),
+                        ),
+                      ),
+
+                      SizedBox(
+                        width: 42,
+                        height: 42,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            backgroundColor: track.isMuted ? StageTheme.alertRed : StageTheme.surfaceElevated,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          onPressed: () => _player.toggleMute(track.name),
+                          child: const Text("M", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+
+                      SizedBox(
+                        width: 42,
+                        height: 42,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            backgroundColor: track.isSolo ? StageTheme.amberGold : StageTheme.surfaceElevated,
+                            foregroundColor: track.isSolo ? Colors.black : Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          onPressed: () => _player.toggleSolo(track.name),
+                          child: const Text("S", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  // Ajuste fino de sincronía por pista (nudge)
+                  Row(
+                    children: [
+                      const SizedBox(width: 4),
+                      const Icon(Icons.sync_alt, size: 14, color: StageTheme.textMuted),
+                      const SizedBox(width: 4),
+                      const Text("Sincronía", style: TextStyle(fontSize: 10, color: StageTheme.textMuted)),
+                      Expanded(
+                        child: Slider(
+                          value: track.nudge.inMilliseconds.toDouble().clamp(-500, 500),
+                          min: -500,
+                          max: 500,
+                          divisions: 20,
+                          activeColor: StageTheme.neonBlue,
+                          onChanged: (val) => _player.setTrackNudge(
+                            track.name,
+                            Duration(milliseconds: val.round()),
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-
-                  Expanded(
-                    flex: 3,
-                    child: Slider(
-                      value: track.volume,
-                      activeColor: accentColor,
-                      onChanged: (val) => _player.setTrackVolume(track.name, val),
-                    ),
-                  ),
-
-                  SizedBox(
-                    width: 42,
-                    height: 42,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        backgroundColor: track.isMuted ? StageTheme.alertRed : StageTheme.surfaceElevated,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
-                      onPressed: () => _player.toggleMute(track.name),
-                      child: const Text("M", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-
-                  SizedBox(
-                    width: 42,
-                    height: 42,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        backgroundColor: track.isSolo ? StageTheme.amberGold : StageTheme.surfaceElevated,
-                        foregroundColor: track.isSolo ? Colors.black : Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      Text(
+                        "${track.nudge.inMilliseconds}ms",
+                        style: const TextStyle(fontSize: 10, color: StageTheme.textMuted),
                       ),
-                      onPressed: () => _player.toggleSolo(track.name),
-                      child: const Text("S", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                    ),
+                    ],
                   ),
                 ],
               ),
@@ -1259,6 +1480,8 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
                             final stems = t["stems"] as Map<String, dynamic>? ?? {};
                             final collection = t["collection_name"] as String?;
                             final isCompleted = t["status"] == "completed";
+                            final status = t["status"] as String? ?? "";
+                            final canRetry = status == "failed" || status == "interrupted";
                             final stemCount = stems.length;
 
                             return ListTile(
@@ -1271,13 +1494,22 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
                                 [
                                   if (collection != null && collection.isNotEmpty) "📁 $collection",
                                   if (isCompleted) "$stemCount pistas",
-                                  if (!isCompleted) "Estado: ${t["status"]}",
+                                  if (!isCompleted) "Estado: $status",
                                 ].join(" · "),
                                 style: const TextStyle(fontSize: 12),
                               ),
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
+                                  if (canRetry)
+                                    IconButton(
+                                      icon: const Icon(Icons.refresh, color: StageTheme.amberGold),
+                                      tooltip: "Reintentar",
+                                      onPressed: () {
+                                        Navigator.pop(ctx);
+                                        _retryTask(taskId);
+                                      },
+                                    ),
                                   IconButton(
                                     icon: const Icon(Icons.delete_outline, color: StageTheme.alertRed),
                                     tooltip: "Eliminar",

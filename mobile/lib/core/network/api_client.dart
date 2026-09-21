@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 class ApiClient {
   static final ApiClient _instance = ApiClient._internal();
@@ -11,6 +13,7 @@ class ApiClient {
   late Dio _publicDio; // Cliente HTTP directo para fallbacks cuando el backend local no está encendido
   String _baseUrl = "https://servi.tail31979d.ts.net/olla";
   String _userName = "Músico Olla Gitana";
+  String _apiToken = "";
 
   ApiClient._internal() {
     _dio = Dio(BaseOptions(
@@ -31,8 +34,12 @@ class ApiClient {
   /// se actualice inmediatamente en toda la app cuando cambie el músico activo.
   final ValueNotifier<String> userNameNotifier = ValueNotifier<String>("Músico Olla Gitana");
 
+  /// Estado de conexión con el backend (para mostrar avisos si está caído).
+  final ValueNotifier<bool> isServerOnlineNotifier = ValueNotifier<bool>(true);
+
   String get baseUrl => _baseUrl;
   String get userName => _userName;
+  String get apiToken => _apiToken;
   bool get isUserIdentified => _userName != "Músico Olla Gitana" && _userName.trim().isNotEmpty;
 
   Future<void> setUserName(String name) async {
@@ -49,8 +56,11 @@ class ApiClient {
   Future<bool> checkConnection() async {
     try {
       final response = await _dio.get("/");
-      return response.statusCode == 200;
+      final online = response.statusCode == 200;
+      isServerOnlineNotifier.value = online;
+      return online;
     } catch (_) {
+      isServerOnlineNotifier.value = false;
       return false;
     }
   }
@@ -66,19 +76,34 @@ class ApiClient {
       _baseUrl = prefs.getString("backend_url") ?? "https://servi.tail31979d.ts.net/olla";
     }
     _userName = prefs.getString("user_name") ?? "Músico Olla Gitana";
+    _apiToken = prefs.getString("api_token") ?? "";
     userNameNotifier.value = _userName;
     _dio.options.baseUrl = _baseUrl;
+    _applyTokenHeader();
   }
 
-  Future<void> updateSettings(String newUrl, String newUserName) async {
+  void _applyTokenHeader() {
+    if (_apiToken.isNotEmpty) {
+      _dio.options.headers["X-API-Token"] = _apiToken;
+    } else {
+      _dio.options.headers.remove("X-API-Token");
+    }
+  }
+
+  Future<void> updateSettings(String newUrl, String newUserName, {String? apiToken}) async {
     _baseUrl = newUrl.endsWith('/') ? newUrl.substring(0, newUrl.length - 1) : newUrl;
     _userName = newUserName.trim();
     userNameNotifier.value = _userName;
     _dio.options.baseUrl = _baseUrl;
+    if (apiToken != null) {
+      _apiToken = apiToken.trim();
+      _applyTokenHeader();
+    }
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString("backend_url", _baseUrl);
     await prefs.setString("user_name", _userName);
+    await prefs.setString("api_token", _apiToken);
   }
 
   String getFullUrl(String path) {
@@ -93,6 +118,23 @@ class ApiClient {
     final cleanPath = path.startsWith('/') ? path : '/$path';
     final wsBase = _baseUrl.replaceFirst(RegExp(r'^http'), 'ws');
     return "$wsBase$cleanPath";
+  }
+
+  /// Crea un canal WebSocket con reconexión automática y backoff exponencial.
+  /// El callback [onMessage] recibe el texto de cada mensaje.
+  /// Devuelve un objeto con `dispose()` para cerrar el canal definitivamente.
+  WebSocketReconnect createReconnectingSocket(
+    String path, {
+    required void Function(String message) onMessage,
+    void Function(bool connected)? onStatusChange,
+    Duration maxBackoff = const Duration(seconds: 20),
+  }) {
+    return WebSocketReconnect(
+      url: getWebSocketUrl(path),
+      onMessage: onMessage,
+      onStatusChange: onStatusChange,
+      maxBackoff: maxBackoff,
+    );
   }
 
   // --- Módulo 1: Letras (LRCLIB + Fallback directo) ---
@@ -142,15 +184,109 @@ class ApiClient {
         parsed.add({"time_ms": timeMs, "text": match.group(3)?.trim() ?? ""});
       }
     }
+    parsed.sort((a, b) => (a["time_ms"] as int).compareTo(b["time_ms"] as int));
     return parsed;
   }
 
+  // --- Caché offline de letras ---
+  Future<void> cacheLyrics(Map<String, dynamic> song) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cached = prefs.getStringList("cached_lyrics") ?? [];
+      final entry = jsonEncode(song);
+      cached.removeWhere((c) {
+        try {
+          return jsonDecode(c)["id"] == song["id"];
+        } catch (_) {
+          return false;
+        }
+      });
+      cached.insert(0, entry);
+      if (cached.length > 30) cached.removeRange(30, cached.length);
+      await prefs.setStringList("cached_lyrics", cached);
+    } catch (_) {}
+  }
+
+  Future<List<Map<String, dynamic>>> getCachedLyrics() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cached = prefs.getStringList("cached_lyrics") ?? [];
+      return cached
+          .map((c) => Map<String, dynamic>.from(jsonDecode(c)))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> removeCachedLyrics(dynamic id) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cached = prefs.getStringList("cached_lyrics") ?? [];
+      cached.removeWhere((c) {
+        try {
+          return jsonDecode(c)["id"] == id;
+        } catch (_) {
+          return false;
+        }
+      });
+      await prefs.setStringList("cached_lyrics", cached);
+    } catch (_) {}
+  }
+
   // --- Módulo 2: Stems ---
+  Future<List<dynamic>> getStemPresets() async {
+    try {
+      final response = await _dio.get("/api/v1/stems/presets");
+      return response.data["presets"] as List<dynamic>? ?? [];
+    } catch (_) {
+      return const [
+        {
+          "key": "fast",
+          "label": "Rápida",
+          "description": "4 pistas, la más rápida.",
+          "format": "mp3",
+        },
+        {
+          "key": "balanced",
+          "label": "Equilibrada",
+          "description": "4 pistas de alta calidad.",
+          "format": "mp3",
+        },
+        {
+          "key": "max",
+          "label": "Máxima",
+          "description": "4 pistas en WAV 24-bit.",
+          "format": "wav",
+        },
+        {
+          "key": "six",
+          "label": "6 pistas",
+          "description": "Incluye guitarra y piano.",
+          "format": "mp3",
+        },
+        {
+          "key": "hybrid",
+          "label": "Híbrida (recomendada)",
+          "description": "Máxima calidad en las 6 pistas.",
+          "format": "mp3",
+        },
+        {
+          "key": "karaoke",
+          "label": "Karaoke",
+          "description": "Solo voz e instrumental.",
+          "format": "mp3",
+        },
+      ];
+    }
+  }
+
   Future<Map<String, dynamic>?> uploadAudioForStems({
     String? filePath,
     Uint8List? fileBytes,
     String? fileName,
     String? collectionName,
+    String preset = "hybrid",
     void Function(int sent, int total)? onProgress,
   }) async {
     try {
@@ -167,15 +303,27 @@ class ApiClient {
       final formData = FormData.fromMap({
         "file": multipartFile,
         "collection_name": collectionName ?? "",
+        "preset": preset,
       });
 
       final response = await _dio.post(
         "/api/v1/stems/upload",
         data: formData,
         onSendProgress: onProgress,
+        options: Options(receiveTimeout: const Duration(minutes: 10), sendTimeout: const Duration(minutes: 10)),
       );
       return response.data;
     } catch (e) {
+      print("[ApiClient] Error subiendo audio: $e");
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> retryStemTask(String taskId) async {
+    try {
+      final response = await _dio.post("/api/v1/stems/tasks/$taskId/retry");
+      return response.data;
+    } catch (_) {
       return null;
     }
   }
@@ -275,9 +423,14 @@ class ApiClient {
         return null;
       }
 
-      final response = await _dio.post("/api/v1/chords/extract", data: formData);
+      final response = await _dio.post(
+        "/api/v1/chords/extract",
+        data: formData,
+        options: Options(receiveTimeout: const Duration(minutes: 5), sendTimeout: const Duration(minutes: 5)),
+      );
       return response.data;
     } catch (e) {
+      print("[ApiClient] Error analizando acordes: $e");
       return null;
     }
   }
@@ -550,5 +703,79 @@ class ApiClient {
     } catch (_) {
       return false;
     }
+  }
+}
+
+/// Canal WebSocket con reconexión automática y backoff exponencial.
+class WebSocketReconnect {
+  WebSocketReconnect({
+    required this.url,
+    required this.onMessage,
+    this.onStatusChange,
+    this.maxBackoff = const Duration(seconds: 20),
+  }) {
+    _connect();
+  }
+
+  final String url;
+  final void Function(String message) onMessage;
+  final void Function(bool connected)? onStatusChange;
+  final Duration maxBackoff;
+
+  WebSocketChannel? _channel;
+  StreamSubscription? _subscription;
+  Timer? _retryTimer;
+  Duration _backoff = const Duration(seconds: 1);
+  bool _disposed = false;
+  bool _connected = false;
+
+  bool get isConnected => _connected;
+
+  void _connect() {
+    if (_disposed) return;
+    try {
+      _channel = WebSocketChannel.connect(Uri.parse(url));
+      _subscription = _channel!.stream.listen(
+        (data) {
+          _backoff = const Duration(seconds: 1);
+          if (!_connected) {
+            _connected = true;
+            onStatusChange?.call(true);
+          }
+          onMessage(data.toString());
+        },
+        onError: (_) => _scheduleReconnect(),
+        onDone: _scheduleReconnect,
+        cancelOnError: true,
+      );
+    } catch (_) {
+      _scheduleReconnect();
+    }
+  }
+
+  void _scheduleReconnect() {
+    if (_disposed) return;
+    if (_connected) {
+      _connected = false;
+      onStatusChange?.call(false);
+    }
+    _subscription?.cancel();
+    _subscription = null;
+    _channel = null;
+
+    _retryTimer?.cancel();
+    _retryTimer = Timer(_backoff, () {
+      if (_disposed) return;
+      _connect();
+      final next = _backoff * 2;
+      _backoff = next > maxBackoff ? maxBackoff : next;
+    });
+  }
+
+  void dispose() {
+    _disposed = true;
+    _retryTimer?.cancel();
+    _subscription?.cancel();
+    _channel?.sink.close();
   }
 }

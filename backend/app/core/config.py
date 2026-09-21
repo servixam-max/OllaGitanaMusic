@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Olla Gitana Music Backend"
-    VERSION: str = "1.0.17"
+    VERSION: str = "1.1.0"
     PORT: int = 8000
     DATA_DIR: str = os.getenv("DATA_DIR", "./data")
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./data/olla_gitana.db")
@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     # Spotify API (Opcional pero recomendado para previews y carátulas)
     SPOTIFY_CLIENT_ID: str = os.getenv("SPOTIFY_CLIENT_ID", "")
     SPOTIFY_CLIENT_SECRET: str = os.getenv("SPOTIFY_CLIENT_SECRET", "")
+
+    # Token compartido para operaciones de escritura (opcional).
+    # Obligatorio si el backend está expuesto a Internet vía túnel.
+    API_TOKEN: str = os.getenv("API_TOKEN", "")
 
     @property
     def upload_dir(self) -> Path:

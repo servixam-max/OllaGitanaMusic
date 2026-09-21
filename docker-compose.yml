@@ -15,6 +15,7 @@ services:
     environment:
       - PORT=8000
       - DATA_DIR=/app/data
+      - DATABASE_URL=sqlite+aiosqlite:////app/data/olla_gitana.db
+      - API_TOKEN=${API_TOKEN:-}
       - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID:-}
       - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET:-}
-      - DATABASE_URL=sqlite+aiosqlite:////app/data/olla_gitana.db

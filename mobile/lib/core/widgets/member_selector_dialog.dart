@@ -143,7 +143,7 @@ class _MemberSelectorDialogState extends State<_MemberSelectorDialog> {
                       return Container(
                         margin: const EdgeInsets.symmetric(vertical: 5),
                         child: Material(
-                          color: isSelected ? StageTheme.amberGold.withOpacity(0.18) : StageTheme.surfaceElevated,
+                          color: isSelected ? StageTheme.amberGold.withValues(alpha: 0.18) : StageTheme.surfaceElevated,
                           borderRadius: BorderRadius.circular(14),
                           child: InkWell(
                             borderRadius: BorderRadius.circular(14),

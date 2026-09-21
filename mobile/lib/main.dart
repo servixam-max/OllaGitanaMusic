@@ -74,7 +74,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     MixerScreen(),
     LyricsScreen(),
     ChordsScreen(),
-    SettingsScreen(),
   ];
 
   @override
@@ -82,41 +81,42 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
-        children: _screens,
+        children: [
+          ..._screens,
+          SettingsScreen(),
+        ],
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
+      bottomNavigationBar: NavigationBar(
         backgroundColor: StageTheme.surface,
-        selectedItemColor: StageTheme.flameOrange,
-        unselectedItemColor: StageTheme.textSecondary,
-        selectedFontSize: 11,
-        unselectedFontSize: 11,
-        currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.queue_music),
+        indicatorColor: StageTheme.flameOrange.withValues(alpha: 0.22),
+        selectedIndex: _currentIndex,
+        onDestinationSelected: (index) => setState(() => _currentIndex = index),
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.queue_music, color: StageTheme.textSecondary),
+            selectedIcon: Icon(Icons.queue_music, color: StageTheme.flameOrange),
             label: "Repertorio",
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.celebration),
+          NavigationDestination(
+            icon: Icon(Icons.celebration, color: StageTheme.textSecondary),
+            selectedIcon: Icon(Icons.celebration, color: StageTheme.flameOrange),
             label: "Eventos",
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.tune),
+          NavigationDestination(
+            icon: Icon(Icons.tune, color: StageTheme.textSecondary),
+            selectedIcon: Icon(Icons.tune, color: StageTheme.flameOrange),
             label: "Mezclador",
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.mic),
+          NavigationDestination(
+            icon: Icon(Icons.mic, color: StageTheme.textSecondary),
+            selectedIcon: Icon(Icons.mic, color: StageTheme.flameOrange),
             label: "Letras",
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.music_note),
+          NavigationDestination(
+            icon: Icon(Icons.music_note, color: StageTheme.textSecondary),
+            selectedIcon: Icon(Icons.music_note, color: StageTheme.flameOrange),
             label: "Acordes",
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.settings),
-            label: "Ajustes",
           ),
         ],
       ),

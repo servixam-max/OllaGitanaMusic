@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
+import 'stem_cache.dart';
 
 class StemTrackState {
   final String name;
@@ -9,6 +11,8 @@ class StemTrackState {
   double volume;
   bool isMuted;
   bool isSolo;
+  /// Ajuste fino de sincronía por pista (positivo = retrasa esa pista).
+  Duration nudge;
 
   StemTrackState({
     required this.name,
@@ -17,6 +21,7 @@ class StemTrackState {
     this.volume = 1.0,
     this.isMuted = false,
     this.isSolo = false,
+    this.nudge = Duration.zero,
   });
 }
 
@@ -27,6 +32,8 @@ class MultitrackPlayer extends ChangeNotifier {
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   Timer? _syncTimer;
+  StreamSubscription<Duration>? _positionSub;
+  StreamSubscription<PlayerState>? _stateSub;
 
   // Controles maestros y herramientas de ensayo
   double _masterVolume = 1.0;
@@ -38,6 +45,12 @@ class MultitrackPlayer extends ChangeNotifier {
   bool _isLooping = false;
   Duration? _loopStart;
   Duration? _loopEnd;
+  bool _sessionConfigured = false;
+  double _loadingProgress = 0.0;
+  bool _disposed = false;
+
+  bool get mountedForNotify => !_disposed;
+  double get loadingProgress => _loadingProgress;
 
   Map<String, StemTrackState> get tracks => _tracks;
   bool get isPlaying => _isPlaying;
@@ -53,25 +66,62 @@ class MultitrackPlayer extends ChangeNotifier {
   Duration? get loopEnd => _loopEnd;
 
   bool get hasAnySolo => _tracks.values.any((t) => t.isSolo);
+  bool get hasAnyNudge => _tracks.values.any((t) => t.nudge != Duration.zero);
 
-  Future<void> loadStems(Map<String, String> stemUrls) async {
+  void setLoadingProgress(double value) {
+    if (_disposed) return;
+    _loadingProgress = value.clamp(0.0, 1.0);
+    notifyListeners();
+  }
+
+  /// Configura la sesión de audio para reproducción musical en primer plano
+  /// (evita que otras apps pausen la mezcla y mejora el rendimiento en ensayo).
+  Future<void> _configureAudioSession() async {
+    if (_sessionConfigured || kIsWeb) return;
+    try {
+      final session = await AudioSession.instance;
+      await session.configure(const AudioSessionConfiguration.music());
+      _sessionConfigured = true;
+    } catch (e) {
+      print("[MultitrackPlayer] No se pudo configurar la sesión de audio: $e");
+    }
+  }
+
+  Future<void> loadStems(Map<String, String> stemUrls, {bool useCache = true}) async {
     _isLoading = true;
+    _loadingProgress = 0.0;
     notifyListeners();
 
     await _cleanupPlayers();
+    await _configureAudioSession();
 
     try {
       final List<StemTrackState> loaded = [];
+      final entries = stemUrls.entries.toList();
+      int completed = 0;
+
+      // Resolver rutas: descarga a caché local (evita cortes en el bucle A-B)
+      Future<String> resolveUrl(String url) async {
+        if (!useCache) return url;
+        final local = await StemCache.instance.localPathFor(url, onProgress: (received, total) {
+          if (total > 0 && mountedForNotify) {
+            final perFile = received / total;
+            setLoadingProgress((completed + perFile) / entries.length);
+          }
+        });
+        return local ?? url;
+      }
 
       // Carga en paralelo de todas las pistas simultáneamente
       await Future.wait(
-        stemUrls.entries.map((entry) async {
+        entries.map((entry) async {
           final stemName = entry.key;
-          final url = entry.value;
+          final remoteUrl = entry.value;
           final player = AudioPlayer();
 
           try {
-            await player.setUrl(url);
+            final playableUrl = await resolveUrl(remoteUrl);
+            await player.setUrl(playableUrl);
             await player.setSpeed(_speed);
             await player.setPitch(_pitch);
 
@@ -82,17 +132,22 @@ class MultitrackPlayer extends ChangeNotifier {
 
             loaded.add(StemTrackState(
               name: stemName,
-              url: url,
+              url: remoteUrl,
               player: player,
             ));
           } catch (err) {
             print("[MultitrackPlayer] Error cargando stem $stemName: $err");
+          } finally {
+            completed++;
+            if (mountedForNotify) {
+              setLoadingProgress(completed / entries.length);
+            }
           }
         }),
       );
 
       // Orden estándar de estudio/mesa de mezclas
-      const preferredOrder = ['vocals', 'drums', 'bass', 'guitar', 'piano', 'other'];
+      const preferredOrder = ['vocals', 'instrumental', 'drums', 'bass', 'guitar', 'piano', 'other'];
       loaded.sort((a, b) {
         final idxA = preferredOrder.indexOf(a.name.toLowerCase());
         final idxB = preferredOrder.indexOf(b.name.toLowerCase());
@@ -109,13 +164,16 @@ class MultitrackPlayer extends ChangeNotifier {
 
       // Escuchar la posición del primer track como reloj maestro
       if (_tracks.isNotEmpty) {
-        _tracks.values.first.player.positionStream.listen((pos) {
+        await _positionSub?.cancel();
+        await _stateSub?.cancel();
+
+        _positionSub = _tracks.values.first.player.positionStream.listen((pos) {
           _position = pos;
 
           // Manejo del bucle A-B
           if (_isLooping && _loopStart != null && _loopEnd != null) {
             if (pos >= _loopEnd!) {
-              seek(_loopStart!);
+              _seekAll(_loopStart!);
               return;
             }
           }
@@ -123,23 +181,23 @@ class MultitrackPlayer extends ChangeNotifier {
           notifyListeners();
         });
 
-        // Escuchar fin de reproducción
-        _tracks.values.first.player.playerStateStream.listen((state) {
+        // Al terminar, reiniciar en bucle o detener limpiamente
+        _stateSub = _tracks.values.first.player.playerStateStream.listen((state) {
           if (state.processingState == ProcessingState.completed) {
             if (_isLooping && _loopStart != null) {
-              seek(_loopStart!);
+              _seekAll(_loopStart!);
               play();
             } else {
               _isPlaying = false;
               _position = Duration.zero;
-              seek(Duration.zero);
+              _seekAll(Duration.zero);
               notifyListeners();
             }
           }
         });
       }
 
-      // Verificación suave de desincronización (solo si el desfase supera 350ms)
+      // Verificación suave de desincronización (solo si el desfase supera 120ms)
       _syncTimer = Timer.periodic(const Duration(seconds: 2), (_) => _alignTracks());
 
     } catch (e) {
@@ -150,17 +208,33 @@ class MultitrackPlayer extends ChangeNotifier {
     }
   }
 
+  /// Posición de referencia del reloj maestro (la primera pista).
+  Duration get _masterPosition => _tracks.isEmpty ? _position : _tracks.values.first.player.position;
+
   void _alignTracks() {
     if (!_isPlaying || _tracks.length <= 1) return;
 
-    final masterPos = _tracks.values.first.player.position;
+    final masterPos = _masterPosition;
     for (final track in _tracks.values.skip(1)) {
-      final diff = (track.player.position - masterPos).inMilliseconds.abs();
-      // Solo realinear si hay un retraso evidente (>350ms) para evitar chasquidos
-      if (diff > 350) {
-        track.player.seek(masterPos);
+      final expected = masterPos + track.nudge;
+      final diff = (track.player.position - expected).inMilliseconds.abs();
+      // Solo realinear si hay un desfase evidente (>120ms) para evitar chasquidos
+      if (diff > 120) {
+        track.player.seek(expected);
       }
     }
+  }
+
+  /// Busca en todas las pistas aplicando el nudge individual de cada una.
+  Future<void> _seekAll(Duration target) async {
+    _position = target;
+    await Future.wait(_tracks.values.map((t) {
+      final adjusted = target + t.nudge;
+      final clamped = Duration(
+        milliseconds: adjusted.inMilliseconds.clamp(0, _duration.inMilliseconds > 0 ? _duration.inMilliseconds : adjusted.inMilliseconds),
+      );
+      return t.player.seek(clamped);
+    }));
   }
 
   Future<void> play() async {
@@ -170,7 +244,7 @@ class MultitrackPlayer extends ChangeNotifier {
 
     // Sincronizar todos los reproductores exactamente a la posición actual antes de arrancar
     final currentPos = _position;
-    await Future.wait(_tracks.values.map((t) => t.player.seek(currentPos)));
+    await Future.wait(_tracks.values.map((t) => t.player.seek(currentPos + t.nudge)));
     await Future.wait(_tracks.values.map((t) => t.player.play()));
   }
 
@@ -183,20 +257,36 @@ class MultitrackPlayer extends ChangeNotifier {
   }
 
   Future<void> seek(Duration newPosition) async {
-    _position = newPosition;
+    await _seekAll(newPosition);
     notifyListeners();
-
-    await Future.wait(_tracks.values.map((t) => t.player.seek(newPosition)));
   }
 
   Future<void> seekRelative(Duration delta) async {
-    final targetMs = (_position.inMilliseconds + delta.inMilliseconds)
+    final targetMs = (_masterPosition.inMilliseconds + delta.inMilliseconds)
         .clamp(0, _duration.inMilliseconds);
     await seek(Duration(milliseconds: targetMs));
   }
 
   Future<void> restart() async {
     await seek(Duration.zero);
+  }
+
+  // --- Ajuste fino de sincronía entre pistas (nudge) ---
+  void setTrackNudge(String stemName, Duration nudge) {
+    final track = _tracks[stemName];
+    if (track == null) return;
+    track.nudge = Duration(milliseconds: nudge.inMilliseconds.clamp(-500, 500));
+    if (_isPlaying) {
+      track.player.seek(_masterPosition + track.nudge);
+    }
+    notifyListeners();
+  }
+
+  void clearNudges() {
+    for (final track in _tracks.values) {
+      track.nudge = Duration.zero;
+    }
+    notifyListeners();
   }
 
   // --- Velocidad de reproducción (preservando tono) ---
@@ -217,7 +307,7 @@ class MultitrackPlayer extends ChangeNotifier {
 
   // --- Bucle A-B ---
   void setLoopPointA() {
-    _loopStart = _position;
+    _loopStart = _masterPosition;
     if (_loopEnd != null && _loopEnd! <= _loopStart!) {
       _loopEnd = null;
     }
@@ -226,11 +316,12 @@ class MultitrackPlayer extends ChangeNotifier {
   }
 
   void setLoopPointB() {
-    if (_loopStart != null && _position > _loopStart!) {
-      _loopEnd = _position;
+    final pos = _masterPosition;
+    if (_loopStart != null && pos > _loopStart!) {
+      _loopEnd = pos;
       _isLooping = true;
     } else {
-      _loopEnd = _position;
+      _loopEnd = pos;
       _isLooping = false;
     }
     notifyListeners();
@@ -297,6 +388,7 @@ class MultitrackPlayer extends ChangeNotifier {
       track.volume = 1.0;
       track.isMuted = false;
       track.isSolo = false;
+      track.nudge = Duration.zero;
     }
     _applyAudioVolumes();
     notifyListeners();
@@ -320,6 +412,11 @@ class MultitrackPlayer extends ChangeNotifier {
 
   Future<void> _cleanupPlayers() async {
     _syncTimer?.cancel();
+    _syncTimer = null;
+    await _positionSub?.cancel();
+    _positionSub = null;
+    await _stateSub?.cancel();
+    _stateSub = null;
     _isPlaying = false;
     for (final track in _tracks.values) {
       await track.player.dispose();
@@ -331,6 +428,7 @@ class MultitrackPlayer extends ChangeNotifier {
 
   @override
   Future<void> dispose() async {
+    _disposed = true;
     await _cleanupPlayers();
     super.dispose();
   }

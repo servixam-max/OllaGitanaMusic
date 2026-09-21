@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.security import require_api_token
 from app.models.repertoire import SongProposal, SongVote
 from app.services.spotify_service import SpotifyService
 from app.services.ws_manager import ws_manager
@@ -156,7 +157,8 @@ async def get_song_preview(song_id: int, db: AsyncSession = Depends(get_db)):
 async def create_song_proposal(
     payload: SongCreateSchema,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_api_token),
 ):
     """
     Propone una nueva canción para el repertorio de Olla Gitana.
@@ -194,7 +196,8 @@ async def create_song_proposal(
 async def update_song_status(
     song_id: int,
     payload: StatusUpdateSchema,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_api_token),
 ):
     """
     Actualiza el estado de un tema ("propuesta", "para_ensayar", "en_repertorio", "descartada").
@@ -215,7 +218,8 @@ async def update_song_status(
 async def vote_song(
     song_id: int,
     payload: VoteCreateSchema,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_api_token),
 ):
     """
     Emite o actualiza el voto de un integrante para una canción (1 a 5 estrellas).
@@ -245,7 +249,11 @@ async def vote_song(
     return data
 
 @router.delete("/songs/{song_id}")
-async def delete_song(song_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_song(
+    song_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_api_token),
+):
     """
     Elimina una propuesta del repertorio.
     """

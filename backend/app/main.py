@@ -20,6 +20,7 @@ from app.api.v1.repertoire import router as repertoire_router
 from app.api.v1.events import router as events_router
 from app.api.v1.members import router as members_router
 from app.api.v1.ws import router as ws_router
+from app.services.stem_queue import stem_queue
 
 logger = logging.getLogger("uvicorn")
 
@@ -131,6 +132,8 @@ async def lifespan(app: FastAPI):
     settings.previews_dir.mkdir(parents=True, exist_ok=True)
     # Iniciar comprobación y sincronización de la versión web en segundo plano
     asyncio.create_task(sync_web_app())
+    # Arrancar la cola de separación de pistas (worker único) y recuperar tareas huérfanas
+    stem_queue.start()
     yield
 
 app = FastAPI(

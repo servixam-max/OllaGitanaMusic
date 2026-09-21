@@ -15,8 +15,8 @@ class StageTheme {
   static const Color alertRed = Color(0xFFEF476F);
 
   static const Color textPrimary = Color(0xFFF8F9FA);
-  static const Color textSecondary = Color(0xFFA0A0B2);
-  static const Color textMuted = Color(0xFF6C6C80);
+  static const Color textSecondary = Color(0xFFB8B8CC);
+  static const Color textMuted = Color(0xFF8A8AA3);
 
   static ThemeData get theme {
     return ThemeData(
@@ -28,12 +28,10 @@ class StageTheme {
         primary: flameOrange,
         secondary: amberGold,
         surface: surface,
-        background: background,
         error: alertRed,
         onPrimary: Colors.white,
         onSecondary: Colors.black,
         onSurface: textPrimary,
-        onBackground: textPrimary,
       ),
       appBarTheme: const AppBarTheme(
         backgroundColor: background,
@@ -47,7 +45,7 @@ class StageTheme {
         ),
         iconTheme: IconThemeData(color: flameOrange, size: 28),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: surface,
         elevation: 4,
         shadowColor: Colors.black54,

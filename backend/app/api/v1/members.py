@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
+from app.core.security import require_api_token
 from app.models.member import BandMember
 
 router = APIRouter(prefix="/members", tags=["Band Members"])
@@ -57,7 +58,11 @@ async def get_band_members(db: AsyncSession = Depends(get_db)):
     ]
 
 @router.post("")
-async def add_band_member(payload: MemberCreate, db: AsyncSession = Depends(get_db)):
+async def add_band_member(
+    payload: MemberCreate,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_api_token),
+):
     """
     Registra un nuevo miembro en la banda si no existe ya.
     """
@@ -95,7 +100,11 @@ async def add_band_member(payload: MemberCreate, db: AsyncSession = Depends(get_
     }
 
 @router.delete("/{name}")
-async def delete_band_member(name: str, db: AsyncSession = Depends(get_db)):
+async def delete_band_member(
+    name: str,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_api_token),
+):
     """
     Elimina un miembro de la banda por nombre.
     """
