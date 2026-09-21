@@ -145,6 +145,44 @@ class _EventsScreenState extends State<EventsScreen> {
     }
   }
 
+  DateTime? _parseEventDate(String? dateStr) {
+    if (dateStr == null || dateStr.trim().isEmpty) return null;
+    try {
+      return DateTime.parse(dateStr);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _getMonthAbbr(DateTime dt) {
+    const months = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEP", "OCT", "NOV", "DIC"];
+    return months[dt.month - 1];
+  }
+
+  String _getCountdownBadge(DateTime dt) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final eventDay = DateTime(dt.year, dt.month, dt.day);
+    final diff = eventDay.difference(today).inDays;
+
+    if (diff < 0) return "Finalizado";
+    if (diff == 0) return "¡HOY!";
+    if (diff == 1) return "¡MAÑANA!";
+    return "En $diff días";
+  }
+
+  Color _getCountdownColor(DateTime dt) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final eventDay = DateTime(dt.year, dt.month, dt.day);
+    final diff = eventDay.difference(today).inDays;
+
+    if (diff < 0) return StageTheme.textMuted;
+    if (diff == 0) return StageTheme.alertRed;
+    if (diff <= 3) return StageTheme.flameOrange;
+    return StageTheme.electricGreen;
+  }
+
   /// Comparte el evento y setlist por WhatsApp con formato profesional
   Future<void> _shareOnWhatsApp(Map<String, dynamic> event) async {
     final name = event["name"] ?? "Bolo Olla Gitana";
@@ -539,59 +577,85 @@ class _EventsScreenState extends State<EventsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Eventos & Bolos"),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "Eventos & Bolos",
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.5),
+            ),
+            Text(
+              "${_events.length} fecha${_events.length != 1 ? 's' : ''} programada${_events.length != 1 ? 's' : ''}",
+              style: const TextStyle(fontSize: 11, color: StageTheme.textSecondary, fontWeight: FontWeight.normal),
+            ),
+          ],
+        ),
         actions: [
           ProfileAppBarButton(onProfileChanged: () => setState(() {})),
           IconButton(
-            icon: const Icon(Icons.refresh, color: StageTheme.amberGold),
+            icon: const Icon(Icons.refresh_rounded, color: StageTheme.amberGold),
             tooltip: "Recargar eventos",
             onPressed: () => _loadEvents(),
           ),
+          const SizedBox(width: 4),
         ],
       ),
       body: Column(
         children: [
-          // Banner de Olla Gitana
+          // Banner de cabecera moderno con degradado
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: Stack(
-                children: [
-                  Image.asset(
-                    "assets/images/band_hero.jpg",
-                    height: 110,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+            child: Container(
+              height: 100,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: StageTheme.border),
+                image: const DecorationImage(
+                  image: AssetImage("assets/images/band_hero.jpg"),
+                  fit: BoxFit.cover,
+                ),
+              ),
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withValues(alpha: 0.2),
+                      Colors.black.withValues(alpha: 0.85),
+                    ],
                   ),
-                  Positioned.fill(
-                    child: Container(
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                alignment: Alignment.bottomLeft,
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.transparent,
-                            Colors.black.withValues(alpha: 0.85),
-                          ],
+                        gradient: StageTheme.flameGradient,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.celebration_rounded, color: Colors.white, size: 16),
+                    ),
+                    const SizedBox(width: 10),
+                    const Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "CONCIERTOS & ENSAYOS",
+                          style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900, letterSpacing: 1.2),
                         ),
-                      ),
+                        Text(
+                          "Setlists listos para el directo y WhatsApp",
+                          style: TextStyle(color: StageTheme.textSecondary, fontSize: 11),
+                        ),
+                      ],
                     ),
-                  ),
-                  const Positioned(
-                    bottom: 10,
-                    left: 14,
-                    child: Text(
-                      "PRÓXIMOS EVENTOS & SETLISTS",
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.5,
-                      ),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -602,25 +666,34 @@ class _EventsScreenState extends State<EventsScreen> {
                 : _events.isEmpty
                     ? Center(
                         child: Padding(
-                          padding: const EdgeInsets.all(24.0),
+                          padding: const EdgeInsets.all(32.0),
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const Icon(Icons.event_available, size: 64, color: StageTheme.amberGold),
+                              Container(
+                                width: 72,
+                                height: 72,
+                                decoration: BoxDecoration(
+                                  color: StageTheme.surfaceElevated,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: StageTheme.border),
+                                ),
+                                child: const Icon(Icons.event_available_rounded, size: 36, color: StageTheme.amberGold),
+                              ),
                               const SizedBox(height: 16),
                               const Text(
                                 "No hay eventos programados",
-                                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                               ),
-                              const SizedBox(height: 8),
+                              const SizedBox(height: 6),
                               const Text(
-                                "Crea un nuevo bolo o ensayo con fecha, lugar y setlist para llevar a Google Calendar y compartir por WhatsApp.",
+                                "Crea un nuevo bolo o ensayo con fecha, lugar y setlist para llevar a Google Calendar y compartir con el grupo.",
                                 textAlign: TextAlign.center,
-                                style: TextStyle(color: StageTheme.textSecondary),
+                                style: TextStyle(color: StageTheme.textSecondary, fontSize: 13),
                               ),
                               const SizedBox(height: 20),
                               ElevatedButton.icon(
-                                icon: const Icon(Icons.add),
+                                icon: const Icon(Icons.add_rounded, size: 18),
                                 label: const Text("Crear Primer Evento"),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: StageTheme.flameOrange,
@@ -633,17 +706,28 @@ class _EventsScreenState extends State<EventsScreen> {
                         ),
                       )
                     : ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                         itemCount: _events.length,
                         itemBuilder: (context, index) {
                           final event = _events[index];
                           final setlist = (event["setlist"] as List<dynamic>? ?? []);
                           final dateStr = event["event_date"] ?? "";
+                          final dt = _parseEventDate(dateStr);
 
                           final displayDate = _formatSpanishDate(dateStr, full: false);
+                          final countdown = dt != null ? _getCountdownBadge(dt) : null;
+                          final countdownColor = dt != null ? _getCountdownColor(dt) : StageTheme.textMuted;
 
-                          return Card(
+                          return Container(
                             margin: const EdgeInsets.symmetric(vertical: 6),
+                            decoration: BoxDecoration(
+                              gradient: StageTheme.cardGradient,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: StageTheme.border),
+                              boxShadow: [
+                                BoxShadow(color: Colors.black.withValues(alpha: 0.25), blurRadius: 6, offset: const Offset(0, 2)),
+                              ],
+                            ),
                             child: Padding(
                               padding: const EdgeInsets.all(14.0),
                               child: Column(
@@ -652,37 +736,114 @@ class _EventsScreenState extends State<EventsScreen> {
                                   Row(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(10),
-                                        decoration: BoxDecoration(
-                                          color: StageTheme.surfaceElevated,
-                                          borderRadius: BorderRadius.circular(10),
+                                      // Mini Calendario visual lateral estilo cartel
+                                      if (dt != null)
+                                        Container(
+                                          width: 54,
+                                          decoration: BoxDecoration(
+                                            color: StageTheme.surfaceElevated,
+                                            borderRadius: BorderRadius.circular(10),
+                                            border: Border.all(color: StageTheme.border),
+                                          ),
+                                          clipBehavior: Clip.antiAlias,
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Container(
+                                                width: double.infinity,
+                                                padding: const EdgeInsets.symmetric(vertical: 3),
+                                                color: StageTheme.flameOrange,
+                                                alignment: Alignment.center,
+                                                child: Text(
+                                                  _getMonthAbbr(dt),
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w900,
+                                                    letterSpacing: 0.5,
+                                                  ),
+                                                ),
+                                              ),
+                                              Padding(
+                                                padding: const EdgeInsets.symmetric(vertical: 6),
+                                                child: Text(
+                                                  "${dt.day}",
+                                                  style: const TextStyle(
+                                                    fontSize: 20,
+                                                    fontWeight: FontWeight.w800,
+                                                    color: Colors.white,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        )
+                                      else
+                                        Container(
+                                          width: 54,
+                                          height: 54,
+                                          decoration: BoxDecoration(
+                                            color: StageTheme.surfaceElevated,
+                                            borderRadius: BorderRadius.circular(10),
+                                          ),
+                                          child: const Icon(Icons.event_rounded, color: StageTheme.flameOrange, size: 26),
                                         ),
-                                        child: const Icon(Icons.celebration, color: StageTheme.flameOrange, size: 28),
-                                      ),
                                       const SizedBox(width: 12),
+                                      // Nombre y detalles del evento
                                       Expanded(
                                         child: Column(
                                           crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
-                                            Text(
-                                              event["name"] ?? "Evento",
-                                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-                                            ),
-                                            const SizedBox(height: 2),
                                             Row(
                                               children: [
-                                                const Icon(Icons.calendar_today, size: 14, color: StageTheme.amberGold),
-                                                const SizedBox(width: 6),
-                                                Text(displayDate, style: const TextStyle(color: StageTheme.amberGold, fontSize: 13, fontWeight: FontWeight.w600)),
+                                                Expanded(
+                                                  child: Text(
+                                                    event["name"] ?? "Evento",
+                                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, letterSpacing: -0.2),
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                                if (countdown != null)
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                                    decoration: BoxDecoration(
+                                                      color: countdownColor.withValues(alpha: 0.15),
+                                                      borderRadius: BorderRadius.circular(8),
+                                                      border: Border.all(color: countdownColor.withValues(alpha: 0.4)),
+                                                    ),
+                                                    child: Text(
+                                                      countdown,
+                                                      style: TextStyle(
+                                                        color: countdownColor,
+                                                        fontSize: 10,
+                                                        fontWeight: FontWeight.bold,
+                                                      ),
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Row(
+                                              children: [
+                                                const Icon(Icons.access_time_rounded, size: 13, color: StageTheme.amberGold),
+                                                const SizedBox(width: 5),
+                                                Expanded(
+                                                  child: Text(
+                                                    displayDate,
+                                                    style: const TextStyle(color: StageTheme.amberGold, fontSize: 12, fontWeight: FontWeight.w600),
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                ),
                                               ],
                                             ),
                                             if ((event["location"] ?? "").isNotEmpty) ...[
-                                              const SizedBox(height: 2),
+                                              const SizedBox(height: 3),
                                               Row(
                                                 children: [
-                                                  const Icon(Icons.place, size: 14, color: StageTheme.textSecondary),
-                                                  const SizedBox(width: 6),
+                                                  const Icon(Icons.place_outlined, size: 13, color: StageTheme.textSecondary),
+                                                  const SizedBox(width: 5),
                                                   Expanded(
                                                     child: Text(
                                                       event["location"],
@@ -698,6 +859,7 @@ class _EventsScreenState extends State<EventsScreen> {
                                         ),
                                       ),
                                       PopupMenuButton<String>(
+                                        icon: const Icon(Icons.more_vert_rounded, size: 20, color: StageTheme.textMuted),
                                         onSelected: (val) {
                                           if (val == "edit") {
                                             _showEventDialog(existingEvent: event);
@@ -706,35 +868,79 @@ class _EventsScreenState extends State<EventsScreen> {
                                           }
                                         },
                                         itemBuilder: (ctx) => [
-                                          const PopupMenuItem(value: "edit", child: Text("Editar")),
-                                          const PopupMenuItem(value: "delete", child: Text("Eliminar", style: TextStyle(color: StageTheme.alertRed))),
+                                          const PopupMenuItem(value: "edit", child: Text("Editar evento")),
+                                          const PopupMenuItem(
+                                            value: "delete",
+                                            child: Text("Eliminar", style: TextStyle(color: StageTheme.alertRed)),
+                                          ),
                                         ],
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(height: 10),
+                                  const SizedBox(height: 12),
 
-                                  // Resumen de Setlist
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                    decoration: BoxDecoration(
-                                      color: StageTheme.surfaceElevated,
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        const Icon(Icons.playlist_play, color: StageTheme.amberGold, size: 20),
-                                        const SizedBox(width: 8),
-                                        Text(
-                                          "${setlist.length} canciones en el setlist",
-                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                                        ),
-                                        const Spacer(),
-                                        TextButton(
-                                          onPressed: () => _showEventDialog(existingEvent: event),
-                                          child: const Text("Ver temas", style: TextStyle(fontSize: 12, color: StageTheme.amberGold)),
-                                        ),
-                                      ],
+                                  // Resumen de Setlist con preview de temas
+                                  GestureDetector(
+                                    onTap: () => _showEventDialog(existingEvent: event),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      decoration: BoxDecoration(
+                                        color: StageTheme.surfaceElevated,
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(color: StageTheme.border),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              const Icon(Icons.playlist_play_rounded, color: StageTheme.amberGold, size: 20),
+                                              const SizedBox(width: 6),
+                                              Text(
+                                                "${setlist.length} canciones en el repertorio",
+                                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                              ),
+                                              const Spacer(),
+                                              const Text("Editar >", style: TextStyle(fontSize: 11, color: StageTheme.amberGold, fontWeight: FontWeight.bold)),
+                                            ],
+                                          ),
+                                          if (setlist.isNotEmpty) ...[
+                                            const SizedBox(height: 6),
+                                            Wrap(
+                                              spacing: 5,
+                                              runSpacing: 4,
+                                              children: setlist.take(3).map((s) {
+                                                return Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                    color: StageTheme.background,
+                                                    borderRadius: BorderRadius.circular(6),
+                                                  ),
+                                                  child: Text(
+                                                    s["title"] ?? "",
+                                                    style: const TextStyle(fontSize: 10, color: StageTheme.textSecondary),
+                                                  ),
+                                                );
+                                              }).toList()
+                                                ..addAll(setlist.length > 3
+                                                    ? [
+                                                        Container(
+                                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                          decoration: BoxDecoration(
+                                                            color: StageTheme.flameOrange.withValues(alpha: 0.15),
+                                                            borderRadius: BorderRadius.circular(6),
+                                                          ),
+                                                          child: Text(
+                                                            "+${setlist.length - 3} más",
+                                                            style: const TextStyle(fontSize: 10, color: StageTheme.flameOrange, fontWeight: FontWeight.bold),
+                                                          ),
+                                                        )
+                                                      ]
+                                                    : []),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
                                     ),
                                   ),
                                   const SizedBox(height: 12),
@@ -743,17 +949,14 @@ class _EventsScreenState extends State<EventsScreen> {
                                   Row(
                                     children: [
                                       Expanded(
-                                        child: ElevatedButton.icon(
-                                          icon: const Icon(Icons.calendar_month, size: 18),
-                                          label: const Text("Google Calendar", style: TextStyle(fontSize: 12)),
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: StageTheme.surfaceElevated,
-                                            foregroundColor: Colors.white,
+                                        child: OutlinedButton.icon(
+                                          icon: const Icon(Icons.calendar_month_outlined, size: 16),
+                                          label: const Text("Calendar", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor: StageTheme.amberGold,
+                                            side: const BorderSide(color: StageTheme.amberGold),
                                             padding: const EdgeInsets.symmetric(vertical: 10),
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius: BorderRadius.circular(10),
-                                              side: const BorderSide(color: StageTheme.amberGold),
-                                            ),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                                           ),
                                           onPressed: () => _exportToGoogleCalendar(event),
                                         ),
@@ -761,13 +964,14 @@ class _EventsScreenState extends State<EventsScreen> {
                                       const SizedBox(width: 8),
                                       Expanded(
                                         child: ElevatedButton.icon(
-                                          icon: const Icon(Icons.share, size: 18),
+                                          icon: const Icon(Icons.share_rounded, size: 16),
                                           label: const Text("WhatsApp", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                                           style: ElevatedButton.styleFrom(
                                             backgroundColor: StageTheme.electricGreen,
                                             foregroundColor: Colors.black,
                                             padding: const EdgeInsets.symmetric(vertical: 10),
                                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                            elevation: 0,
                                           ),
                                           onPressed: () => _shareOnWhatsApp(event),
                                         ),
@@ -785,10 +989,12 @@ class _EventsScreenState extends State<EventsScreen> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: StageTheme.flameOrange,
-        icon: const Icon(Icons.add, color: Colors.white),
-        label: const Text("Nuevo Evento", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        elevation: 6,
+        icon: const Icon(Icons.add_rounded, color: Colors.white, size: 22),
+        label: const Text("Nuevo Evento", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
         onPressed: () => _showEventDialog(),
       ),
     );
   }
 }
+

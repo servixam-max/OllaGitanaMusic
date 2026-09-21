@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'core/network/api_client.dart';
 import 'core/theme/stage_theme.dart';
 import 'core/updater/app_updater.dart';
@@ -12,6 +13,13 @@ import 'features/settings/settings_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Barra de estado transparente — la app usa todo el alto de pantalla
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.light,
+    systemNavigationBarColor: StageTheme.surface,
+    systemNavigationBarIconBrightness: Brightness.light,
+  ));
   await ApiClient().ensureInitialized();
   runApp(const OllaGitanaApp());
 }
@@ -57,9 +65,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 
   void _checkUpdatesOnStartup() async {
-    // Probar conectividad inicial con el backend en segundo plano
     ApiClient().checkConnection();
-
     await Future.delayed(const Duration(milliseconds: 1500));
     if (!mounted) return;
     final update = await AppUpdater.checkForUpdates();
@@ -77,6 +83,15 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     SettingsScreen(),
   ];
 
+  static const _destinations = [
+    _NavItem(Icons.queue_music_outlined, Icons.queue_music, "Repertorio"),
+    _NavItem(Icons.celebration_outlined, Icons.celebration, "Eventos"),
+    _NavItem(Icons.tune_outlined, Icons.tune, "Mezclador"),
+    _NavItem(Icons.mic_none_outlined, Icons.mic, "Letras"),
+    _NavItem(Icons.piano_outlined, Icons.piano, "Acordes"),
+    _NavItem(Icons.settings_outlined, Icons.settings, "Ajustes"),
+  ];
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -84,45 +99,31 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         index: _currentIndex,
         children: _screens,
       ),
-      bottomNavigationBar: NavigationBar(
-        backgroundColor: StageTheme.surface,
-        indicatorColor: StageTheme.flameOrange.withValues(alpha: 0.22),
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (index) => setState(() => _currentIndex = index),
-        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.queue_music, color: StageTheme.textSecondary),
-            selectedIcon: Icon(Icons.queue_music, color: StageTheme.flameOrange),
-            label: "Repertorio",
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.celebration, color: StageTheme.textSecondary),
-            selectedIcon: Icon(Icons.celebration, color: StageTheme.flameOrange),
-            label: "Eventos",
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.tune, color: StageTheme.textSecondary),
-            selectedIcon: Icon(Icons.tune, color: StageTheme.flameOrange),
-            label: "Mezclador",
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.mic, color: StageTheme.textSecondary),
-            selectedIcon: Icon(Icons.mic, color: StageTheme.flameOrange),
-            label: "Letras",
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.music_note, color: StageTheme.textSecondary),
-            selectedIcon: Icon(Icons.music_note, color: StageTheme.flameOrange),
-            label: "Acordes",
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.settings_outlined, color: StageTheme.textSecondary),
-            selectedIcon: Icon(Icons.settings, color: StageTheme.flameOrange),
-            label: "Ajustes",
-          ),
-        ],
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          color: StageTheme.surface,
+          border: Border(top: BorderSide(color: StageTheme.border, width: 1)),
+        ),
+        child: NavigationBar(
+          selectedIndex: _currentIndex,
+          onDestinationSelected: (i) => setState(() => _currentIndex = i),
+          destinations: [
+            for (int i = 0; i < _destinations.length; i++)
+              NavigationDestination(
+                icon: Icon(_destinations[i].icon),
+                selectedIcon: Icon(_destinations[i].activeIcon),
+                label: _destinations[i].label,
+              ),
+          ],
+        ),
       ),
     );
   }
+}
+
+class _NavItem {
+  final IconData icon;
+  final IconData activeIcon;
+  final String label;
+  const _NavItem(this.icon, this.activeIcon, this.label);
 }

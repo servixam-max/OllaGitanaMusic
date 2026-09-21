@@ -31,13 +31,46 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
   WebSocketReconnect? _wsChannel;
   bool _wsConnected = true;
 
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = "";
+  bool _isSearchExpanded = false;
+
   static const List<(String, String, IconData)> _filters = [
-    ("todas", "Todas", Icons.list_alt),
-    ("propuesta", "Propuestas", Icons.thumb_up_outlined),
-    ("para_ensayar", "Ensayar", Icons.queue_music),
-    ("en_repertorio", "Repertorio", Icons.library_music),
-    ("descartada", "Descartadas", Icons.thumb_down_outlined),
+    ("todas", "Todas", Icons.all_inclusive_rounded),
+    ("propuesta", "Propuestas", Icons.thumb_up_alt_rounded),
+    ("para_ensayar", "Ensayar", Icons.queue_music_rounded),
+    ("en_repertorio", "Repertorio", Icons.library_music_rounded),
+    ("descartada", "Descartadas", Icons.thumb_down_alt_rounded),
   ];
+
+  List<dynamic> get _filteredSongs {
+    if (_searchQuery.trim().isEmpty) return _songs;
+    final q = _searchQuery.toLowerCase();
+    return _songs.where((song) {
+      final title = (song["title"] ?? "").toString().toLowerCase();
+      final artist = (song["artist"] ?? "").toString().toLowerCase();
+      return title.contains(q) || artist.contains(q);
+    }).toList();
+  }
+
+  Map<String, int> get _filterCounts {
+    final counts = <String, int>{"todas": _songs.length};
+    for (final f in _filters) {
+      if (f.$1 != "todas") {
+        counts[f.$1] = _songs.where((s) => s["status"] == f.$1).length;
+      }
+    }
+    return counts;
+  }
+
+  dynamic get _currentlyPlayingSong {
+    if (_playingPreviewSongId == null) return null;
+    try {
+      return _songs.firstWhere((s) => s["id"] == _playingPreviewSongId);
+    } catch (_) {
+      return null;
+    }
+  }
 
   @override
   void initState() {
@@ -54,6 +87,7 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
 
   @override
   void dispose() {
+    _searchController.dispose();
     _previewPlayer.dispose();
     _wsChannel?.dispose();
     super.dispose();
@@ -303,15 +337,82 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final songsToShow = _filteredSongs;
+    final currentlyPlaying = _currentlyPlayingSong;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Repertorio"),
+        titleSpacing: 16,
+        title: _isSearchExpanded
+            ? Container(
+                height: 42,
+                decoration: BoxDecoration(
+                  color: StageTheme.surfaceElevated,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: StageTheme.borderLight),
+                ),
+                child: TextField(
+                  controller: _searchController,
+                  autofocus: true,
+                  style: const TextStyle(fontSize: 14, color: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: "Buscar por título o artista...",
+                    hintStyle: const TextStyle(color: StageTheme.textMuted, fontSize: 13),
+                    prefixIcon: const Icon(Icons.search_rounded, size: 20, color: StageTheme.flameOrange),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.close_rounded, size: 18, color: StageTheme.textSecondary),
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() => _searchQuery = "");
+                            },
+                          )
+                        : null,
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  onChanged: (val) => setState(() => _searchQuery = val),
+                ),
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "Repertorio",
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.5),
+                  ),
+                  ValueListenableBuilder<String>(
+                    valueListenable: _api.userNameNotifier,
+                    builder: (_, name, __) => Text(
+                      _api.isUserIdentified ? "Músico: $name" : "Selecciona tu perfil de músico",
+                      style: const TextStyle(fontSize: 11, color: StageTheme.textSecondary, fontWeight: FontWeight.normal),
+                    ),
+                  ),
+                ],
+              ),
         actions: [
-          // Selector de modo de vista
           IconButton(
             icon: Icon(
-              _viewMode == _ViewMode.compact ? Icons.grid_view : Icons.view_list,
+              _isSearchExpanded ? Icons.close_rounded : Icons.search_rounded,
+              color: _isSearchExpanded ? StageTheme.flameOrange : StageTheme.textSecondary,
+              size: 22,
+            ),
+            tooltip: _isSearchExpanded ? "Cerrar búsqueda" : "Buscar canción",
+            onPressed: () {
+              setState(() {
+                _isSearchExpanded = !_isSearchExpanded;
+                if (!_isSearchExpanded) {
+                  _searchController.clear();
+                  _searchQuery = "";
+                }
+              });
+            },
+          ),
+          IconButton(
+            icon: Icon(
+              _viewMode == _ViewMode.compact ? Icons.grid_view_rounded : Icons.view_list_rounded,
               color: StageTheme.amberGold,
+              size: 22,
             ),
             tooltip: _viewMode == _ViewMode.compact ? "Vista tarjetas" : "Vista compacta",
             onPressed: () => setState(() {
@@ -320,117 +421,182 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
           ),
           ProfileAppBarButton(onProfileChanged: () => setState(() {})),
           IconButton(
-            icon: const Icon(Icons.share, color: StageTheme.amberGold),
-            tooltip: "Compartir repertorio por WhatsApp",
+            icon: const Icon(Icons.share_rounded, color: StageTheme.amberGold, size: 21),
+            tooltip: "Compartir catálogo en WhatsApp",
             onPressed: _shareRepertoireOnWhatsApp,
           ),
+          const SizedBox(width: 4),
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
-          // Aviso si se pierde la sincronización en vivo
-          if (!_wsConnected)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              color: StageTheme.alertRed.withValues(alpha: 0.15),
-              child: const Row(
-                children: [
-                  Icon(Icons.cloud_off, size: 16, color: StageTheme.alertRed),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      "Sin conexión en vivo — reintentando sincronizar con la sala...",
-                      style: TextStyle(color: StageTheme.alertRed, fontSize: 11, fontWeight: FontWeight.bold),
-                    ),
+          Column(
+            children: [
+              // Aviso si se pierde la sincronización en vivo
+              if (!_wsConnected)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  color: StageTheme.alertRed.withValues(alpha: 0.15),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.cloud_off_rounded, size: 16, color: StageTheme.alertRed),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          "Sin conexión en vivo — reintentando sincronizar con la sala...",
+                          style: TextStyle(color: StageTheme.alertRed, fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            ),
+                ),
 
-          // Filtros compactos tipo NavigationBar
-          _buildFilterBar(),
+              // Filtros tipo Pill con badges y animación
+              _buildFilterBar(),
 
-          // Contador de resultados
-          if (!_isLoading)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              alignment: Alignment.centerLeft,
-              child: Text(
-                "${_songs.length} canción${_songs.length != 1 ? 'es' : ''}${_selectedFilter != 'todas' ? ' · ${_filters.firstWhere((f) => f.$1 == _selectedFilter).$2}' : ''}",
-                style: const TextStyle(color: StageTheme.textSecondary, fontSize: 12),
-              ),
-            ),
-
-          // Lista de canciones
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator(color: StageTheme.flameOrange))
-                : _songs.isEmpty
-                    ? RefreshIndicator(
-                        onRefresh: () => _loadSongs(),
-                        color: StageTheme.flameOrange,
-                        child: SingleChildScrollView(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          child: Padding(
-                            padding: const EdgeInsets.all(32.0),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(Icons.music_note, size: 56, color: StageTheme.textMuted),
-                                const SizedBox(height: 12),
-                                const Text(
-                                  "No hay canciones en esta sección.\n¡Propón una nueva con el botón inferior!",
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(color: StageTheme.textSecondary, fontSize: 15),
-                                ),
-                                const SizedBox(height: 16),
-                                ElevatedButton.icon(
-                                  icon: const Icon(Icons.refresh),
-                                  label: const Text("Actualizar lista"),
-                                  style: ElevatedButton.styleFrom(backgroundColor: StageTheme.surfaceElevated),
-                                  onPressed: () => _loadSongs(),
-                                ),
-                              ],
-                            ),
+              // Sub-barra informativa con contador elegante y filtros activos
+              if (!_isLoading)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+                  child: Row(
+                    children: [
+                      Text(
+                        _searchQuery.isNotEmpty
+                            ? "${songsToShow.length} de ${_songs.length} canciones encontradas"
+                            : "${songsToShow.length} ${_selectedFilter == 'todas' ? 'temas en total' : _getStatusLabel(_selectedFilter).toLowerCase()}",
+                        style: const TextStyle(color: StageTheme.textMuted, fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                      const Spacer(),
+                      if (_searchQuery.isNotEmpty)
+                        GestureDetector(
+                          onTap: () {
+                            _searchController.clear();
+                            setState(() => _searchQuery = "");
+                          },
+                          child: const Text(
+                            "Limpiar filtro",
+                            style: TextStyle(color: StageTheme.flameOrange, fontSize: 11, fontWeight: FontWeight.bold),
                           ),
                         ),
-                      )
-                    : RefreshIndicator(
-                        onRefresh: () => _loadSongs(),
-                        color: StageTheme.flameOrange,
-                        child: _viewMode == _ViewMode.compact
-                            ? _buildCompactList()
-                            : _buildCardList(),
-                      ),
+                    ],
+                  ),
+                ),
+
+              // Lista principal de canciones
+              Expanded(
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator(color: StageTheme.flameOrange))
+                    : songsToShow.isEmpty
+                        ? RefreshIndicator(
+                            onRefresh: () => _loadSongs(),
+                            color: StageTheme.flameOrange,
+                            child: SingleChildScrollView(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              child: Padding(
+                                padding: const EdgeInsets.all(36.0),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const SizedBox(height: 32),
+                                    Container(
+                                      width: 72,
+                                      height: 72,
+                                      decoration: BoxDecoration(
+                                        color: StageTheme.surfaceElevated,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: StageTheme.border),
+                                      ),
+                                      child: const Icon(Icons.music_off_rounded, size: 36, color: StageTheme.textMuted),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      _searchQuery.isNotEmpty
+                                          ? "Sin resultados para '$_searchQuery'"
+                                          : "No hay canciones en esta categoría",
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(color: StageTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.bold),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      _searchQuery.isNotEmpty
+                                          ? "Prueba buscando con otro término o borra la búsqueda"
+                                          : "Propón un tema para ensayar o añadir al repertorio",
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(color: StageTheme.textSecondary, fontSize: 13),
+                                    ),
+                                    const SizedBox(height: 20),
+                                    ElevatedButton.icon(
+                                      icon: const Icon(Icons.add_rounded, size: 18),
+                                      label: const Text("Proponer tema"),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: StageTheme.flameOrange,
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                                      ),
+                                      onPressed: () => _showAddSongDialog(),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          )
+                        : RefreshIndicator(
+                            onRefresh: () => _loadSongs(),
+                            color: StageTheme.flameOrange,
+                            child: _viewMode == _ViewMode.compact
+                                ? _buildCompactList(songsToShow)
+                                : _buildCardList(songsToShow),
+                          ),
+              ),
+
+              // Espacio reservado para el mini player flotante inferior
+              if (currentlyPlaying != null) const SizedBox(height: 74),
+            ],
           ),
+
+          // Mini Reproductor Flotante persistente estilo Spotify/Apple Music
+          if (currentlyPlaying != null)
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: 12,
+              child: _buildBottomPreviewPlayer(currentlyPlaying),
+            ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: StageTheme.flameOrange,
-        icon: const Icon(Icons.add, color: Colors.white),
-        label: const Text("Proponer", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        onPressed: () => _showAddSongDialog(),
-      ),
+      floatingActionButton: currentlyPlaying != null
+          ? null
+          : FloatingActionButton.extended(
+              backgroundColor: StageTheme.flameOrange,
+              elevation: 6,
+              icon: const Icon(Icons.add_rounded, color: Colors.white, size: 22),
+              label: const Text("Proponer", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+              onPressed: () => _showAddSongDialog(),
+            ),
     );
   }
 
-  /// Barra de filtros compacta — ocupa una sola fila sin scroll horizontal
+  /// Barra de filtros estilo Pill con conteos en vivo y degradado vibrante
   Widget _buildFilterBar() {
+    final counts = _filterCounts;
+
     return Container(
-      color: StageTheme.surface,
-      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+      color: StageTheme.background,
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
         child: Row(
           children: _filters.map((filter) {
             final key = filter.$1;
             final label = filter.$2;
             final icon = filter.$3;
             final isSelected = _selectedFilter == key;
-            // Contar canciones por categoría para mostrar badge
+            final count = counts[key] ?? 0;
+
             return Padding(
-              padding: const EdgeInsets.only(right: 4),
+              padding: const EdgeInsets.only(right: 6),
               child: GestureDetector(
                 onTap: () {
                   setState(() => _selectedFilter = key);
@@ -438,13 +604,17 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                 },
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  curve: Curves.easeOutCubic,
+                  padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
                   decoration: BoxDecoration(
-                    color: isSelected ? StageTheme.flameOrange : StageTheme.surfaceElevated,
+                    gradient: isSelected ? StageTheme.flameGradient : null,
+                    color: isSelected ? null : StageTheme.surfaceElevated,
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      color: isSelected ? StageTheme.flameOrange : StageTheme.border,
+                      color: isSelected ? Colors.transparent : StageTheme.border,
+                      width: 1,
                     ),
+                    boxShadow: isSelected ? StageTheme.glowOrange : null,
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -454,15 +624,35 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                         size: 14,
                         color: isSelected ? Colors.white : StageTheme.textSecondary,
                       ),
-                      const SizedBox(width: 5),
+                      const SizedBox(width: 6),
                       Text(
                         label,
                         style: TextStyle(
                           fontSize: 13,
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
                           color: isSelected ? Colors.white : StageTheme.textSecondary,
                         ),
                       ),
+                      if (count > 0) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? Colors.black.withValues(alpha: 0.25)
+                                : StageTheme.background,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            "$count",
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: isSelected ? Colors.white : StageTheme.amberGold,
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -474,48 +664,60 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
     );
   }
 
-  /// Vista compacta: muchas canciones por pantalla
-  Widget _buildCompactList() {
+  /// Vista compacta: muchas canciones por pantalla, estilo lista de Spotify
+  Widget _buildCompactList(List<dynamic> songs) {
     return ListView.builder(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      itemCount: _songs.length,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      itemCount: songs.length,
       itemBuilder: (context, index) {
-        final song = _songs[index];
+        final song = songs[index];
         final isPlayingThis = _playingPreviewSongId == song["id"] as int?;
         final statusColor = _getStatusColor(song["status"] as String? ?? "");
 
-        return Card(
-          margin: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
+        return Container(
+          margin: const EdgeInsets.symmetric(vertical: 3),
+          decoration: BoxDecoration(
+            color: isPlayingThis
+                ? StageTheme.flameOrange.withValues(alpha: 0.12)
+                : StageTheme.surfaceElevated,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isPlayingThis
+                  ? StageTheme.flameOrange.withValues(alpha: 0.6)
+                  : StageTheme.border,
+              width: isPlayingThis ? 1.2 : 1.0,
+            ),
+          ),
           clipBehavior: Clip.antiAlias,
           child: IntrinsicHeight(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Borde de color según estado
-                Container(width: 4, color: statusColor),
+                // Indicador de color lateral del estado
+                Container(width: 4.5, color: statusColor),
                 Expanded(
                   child: InkWell(
-                    borderRadius: const BorderRadius.horizontal(right: Radius.circular(12)),
+                    borderRadius: const BorderRadius.horizontal(right: Radius.circular(14)),
                     onTap: () => _showSongDetailSheet(song),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
                       child: Row(
                         children: [
-                          // Portada pequeña
+                          // Portada pequeña con esquinas redondeadas
                           ClipRRect(
-                            borderRadius: BorderRadius.circular(6),
+                            borderRadius: BorderRadius.circular(8),
                             child: song["cover_url"] != null
                                 ? Image.network(
                                     song["cover_url"] as String,
-                                    width: 44,
-                                    height: 44,
+                                    width: 46,
+                                    height: 46,
                                     fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => _placeholderCover(44),
+                                    errorBuilder: (_, __, ___) => _placeholderCover(46),
                                   )
-                                : _placeholderCover(44),
+                                : _placeholderCover(46),
                           ),
-                          const SizedBox(width: 10),
+                          const SizedBox(width: 11),
                           // Título y artista
                           Expanded(
                             child: Column(
@@ -524,10 +726,15 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                               children: [
                                 Text(
                                   song["title"] as String? ?? "",
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                    color: isPlayingThis ? StageTheme.flameOrange : StageTheme.textPrimary,
+                                  ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
+                                const SizedBox(height: 2),
                                 Text(
                                   song["artist"] as String? ?? "",
                                   style: const TextStyle(color: StageTheme.textSecondary, fontSize: 12),
@@ -537,8 +744,8 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                               ],
                             ),
                           ),
-                          const SizedBox(width: 6),
-                          // Columna derecha: rating + estado tocable
+                          const SizedBox(width: 8),
+                          // Rating y chip de estado interactivo
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -546,24 +753,24 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                               Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const Icon(Icons.star, size: 12, color: StageTheme.amberGold),
+                                  const Icon(Icons.star_rounded, size: 13, color: StageTheme.amberGold),
                                   const SizedBox(width: 2),
                                   Text(
                                     "${(song["average_rating"] as num?)?.toStringAsFixed(1) ?? "0.0"}",
-                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
                                   ),
                                 ],
                               ),
                               const SizedBox(height: 4),
-                              // Chip de estado TOCABLE directamente sin abrir el detail sheet
+                              // Chip de estado interactivo rápido
                               GestureDetector(
                                 onTap: () => _showInlineStatusMenu(context, song),
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                                   decoration: BoxDecoration(
-                                    color: statusColor.withValues(alpha: 0.15),
+                                    color: statusColor.withValues(alpha: 0.16),
                                     borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: statusColor.withValues(alpha: 0.6), width: 1),
+                                    border: Border.all(color: statusColor.withValues(alpha: 0.5), width: 1),
                                   ),
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
@@ -580,15 +787,29 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                               ),
                             ],
                           ),
-                          const SizedBox(width: 2),
-                          // Play button
+                          const SizedBox(width: 4),
+                          // Botón Play/Pause circular moderno
                           IconButton(
                             padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                            icon: Icon(
-                              isPlayingThis ? Icons.pause_circle_filled : Icons.play_circle_fill,
-                              color: song["preview_url"] != null ? StageTheme.flameOrange : StageTheme.textMuted,
-                              size: 32,
+                            constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
+                            icon: Container(
+                              width: 34,
+                              height: 34,
+                              decoration: BoxDecoration(
+                                gradient: isPlayingThis ? StageTheme.flameGradient : null,
+                                color: isPlayingThis ? null : StageTheme.surface,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: isPlayingThis ? Colors.transparent : StageTheme.border,
+                                ),
+                              ),
+                              child: Icon(
+                                isPlayingThis ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                                color: isPlayingThis
+                                    ? Colors.white
+                                    : (song["preview_url"] != null ? StageTheme.flameOrange : StageTheme.textMuted),
+                                size: 20,
+                              ),
                             ),
                             onPressed: () => _togglePreview(song["id"] as int, song["preview_url"] as String?),
                           ),
@@ -605,74 +826,109 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
     );
   }
 
-
-  /// Vista tarjetas: la vista original, más detallada
-  Widget _buildCardList() {
+  /// Vista tarjetas: más detallada, estilo tarjeta de streaming moderna
+  Widget _buildCardList(List<dynamic> songs) {
     return ListView.builder(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      itemCount: _songs.length,
+      itemCount: songs.length,
       itemBuilder: (context, index) {
-        final song = _songs[index];
+        final song = songs[index];
         final isPlayingThis = _playingPreviewSongId == song["id"] as int?;
+        final statusColor = _getStatusColor(song["status"] as String? ?? "");
 
-        return Card(
+        return Container(
           margin: const EdgeInsets.symmetric(vertical: 6),
+          decoration: BoxDecoration(
+            gradient: StageTheme.cardGradient,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isPlayingThis ? StageTheme.flameOrange : StageTheme.border,
+              width: isPlayingThis ? 1.5 : 1.0,
+            ),
+            boxShadow: isPlayingThis ? StageTheme.glowOrange : [
+              BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 2)),
+            ],
+          ),
           child: Padding(
-            padding: const EdgeInsets.all(12.0),
+            padding: const EdgeInsets.all(14.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Carátula
+                    // Carátula grande con esquinas suaves
                     ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(10),
                       child: song["cover_url"] != null
                           ? Image.network(
                               song["cover_url"] as String,
-                              width: 64,
-                              height: 64,
+                              width: 68,
+                              height: 68,
                               fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => _placeholderCover(64),
+                              errorBuilder: (_, __, ___) => _placeholderCover(68),
                             )
-                          : _placeholderCover(64),
+                          : _placeholderCover(68),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 14),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             song["title"] as String? ?? "",
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, letterSpacing: -0.2),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
+                          const SizedBox(height: 2),
                           Text(
                             song["artist"] as String? ?? "",
                             style: const TextStyle(color: StageTheme.textSecondary, fontSize: 14),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            "Propuesta por: ${song["proposed_by"]}",
-                            style: const TextStyle(color: StageTheme.textMuted, fontSize: 12),
+                          const SizedBox(height: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: statusColor.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: statusColor.withValues(alpha: 0.4)),
+                            ),
+                            child: Text(
+                              _getStatusLabel(song["status"] as String? ?? ""),
+                              style: TextStyle(fontSize: 10, color: statusColor, fontWeight: FontWeight.bold),
+                            ),
                           ),
                         ],
                       ),
                     ),
                     IconButton(
-                      iconSize: 40,
-                      icon: Icon(
-                        isPlayingThis ? Icons.pause_circle_filled : Icons.play_circle_fill,
-                        color: song["preview_url"] != null ? StageTheme.flameOrange : StageTheme.textMuted,
+                      iconSize: 44,
+                      icon: Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          gradient: isPlayingThis ? StageTheme.flameGradient : null,
+                          color: isPlayingThis ? null : StageTheme.surfaceElevated,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: isPlayingThis ? Colors.transparent : StageTheme.border),
+                        ),
+                        child: Icon(
+                          isPlayingThis ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                          color: isPlayingThis ? Colors.white : StageTheme.flameOrange,
+                          size: 26,
+                        ),
                       ),
                       onPressed: () => _togglePreview(song["id"] as int, song["preview_url"] as String?),
                     ),
                   ],
                 ),
-                const Divider(color: StageTheme.border, height: 24),
+                const SizedBox(height: 12),
+                const Divider(color: StageTheme.border, height: 1),
+                const SizedBox(height: 10),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -685,9 +941,9 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                           direction: Axis.horizontal,
                           allowHalfRating: true,
                           itemCount: 5,
-                          itemSize: 22,
+                          itemSize: 20,
                           itemPadding: const EdgeInsets.symmetric(horizontal: 1.0),
-                          itemBuilder: (context, _) => const Icon(Icons.star, color: StageTheme.amberGold),
+                          itemBuilder: (context, _) => const Icon(Icons.star_rounded, color: StageTheme.amberGold),
                           onRatingUpdate: (rating) => _vote(song["id"] as int, rating.toInt()),
                         ),
                         const SizedBox(height: 2),
@@ -701,9 +957,9 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         _buildStatusMenu(song),
-                        const SizedBox(width: 2),
+                        const SizedBox(width: 4),
                         IconButton(
-                          icon: const Icon(Icons.delete_outline, color: StageTheme.alertRed, size: 20),
+                          icon: const Icon(Icons.delete_outline_rounded, color: StageTheme.alertRed, size: 20),
                           tooltip: "Eliminar canción",
                           onPressed: () => _confirmDeleteSong(song["id"] as int, song["title"] as String? ?? "Canción"),
                         ),
@@ -716,6 +972,72 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
           ),
         );
       },
+    );
+  }
+
+  /// Mini Reproductor Persistente en la parte inferior cuando suena un snippet
+  Widget _buildBottomPreviewPlayer(dynamic song) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: StageTheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: StageTheme.flameOrange, width: 1.5),
+        boxShadow: StageTheme.glowOrange,
+      ),
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: song["cover_url"] != null
+                ? Image.network(
+                    song["cover_url"] as String,
+                    width: 42,
+                    height: 42,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => _placeholderCover(42),
+                  )
+                : _placeholderCover(42),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.graphic_eq_rounded, size: 14, color: StageTheme.flameOrange),
+                    const SizedBox(width: 4),
+                    const Text(
+                      "REPRODUCIENDO SNIPPET 30s",
+                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: StageTheme.flameOrange, letterSpacing: 0.5),
+                    ),
+                  ],
+                ),
+                Text(
+                  song["title"] ?? "",
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  song["artist"] ?? "",
+                  style: const TextStyle(fontSize: 11, color: StageTheme.textSecondary),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(Icons.stop_circle_rounded, color: StageTheme.flameOrange, size: 36),
+            tooltip: "Detener preview",
+            onPressed: () => _togglePreview(song["id"] as int, song["preview_url"] as String?),
+          ),
+        ],
+      ),
     );
   }
 

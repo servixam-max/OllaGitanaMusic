@@ -1100,31 +1100,28 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
             ],
           ),
 
-          // Botonera de transporte principal
+          // Botonera de transporte principal estilizada
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               IconButton(
-                icon: const Icon(Icons.skip_previous),
+                icon: const Icon(Icons.skip_previous_rounded),
                 tooltip: "Inicio",
-                iconSize: 28,
+                iconSize: 26,
+                color: StageTheme.textSecondary,
                 onPressed: _player.restart,
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               IconButton(
-                icon: const Icon(Icons.replay_10),
+                icon: const Icon(Icons.replay_10_rounded),
                 tooltip: "Retroceder 10s",
-                iconSize: 32,
+                iconSize: 28,
+                color: StageTheme.textSecondary,
                 onPressed: () => _player.seekRelative(const Duration(seconds: -10)),
               ),
               const SizedBox(width: 12),
-              IconButton(
-                iconSize: 56,
-                icon: Icon(
-                  _player.isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill,
-                  color: StageTheme.flameOrange,
-                ),
-                onPressed: () {
+              GestureDetector(
+                onTap: () {
                   if (_player.isPlaying) {
                     _player.pause();
                     _toggleWakelock(false);
@@ -1133,22 +1130,37 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
                     _toggleWakelock(true);
                   }
                 },
+                child: Container(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    gradient: StageTheme.flameGradient,
+                    shape: BoxShape.circle,
+                    boxShadow: StageTheme.glowOrange,
+                  ),
+                  child: Icon(
+                    _player.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                    color: Colors.white,
+                    size: 34,
+                  ),
+                ),
               ),
               const SizedBox(width: 12),
               IconButton(
-                icon: const Icon(Icons.forward_10),
+                icon: const Icon(Icons.forward_10_rounded),
                 tooltip: "Avanzar 10s",
-                iconSize: 32,
+                iconSize: 28,
+                color: StageTheme.textSecondary,
                 onPressed: () => _player.seekRelative(const Duration(seconds: 10)),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               IconButton(
                 icon: Icon(
-                  Icons.repeat,
+                  _player.isLooping ? Icons.repeat_on_rounded : Icons.repeat_rounded,
                   color: _player.isLooping ? StageTheme.amberGold : StageTheme.textSecondary,
                 ),
                 tooltip: _player.isLooping ? "Desactivar bucle" : "Activar bucle A-B",
-                iconSize: 28,
+                iconSize: 26,
                 onPressed: _player.toggleLoop,
               ),
             ],
@@ -1352,34 +1364,70 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
                         ),
                       ),
 
-                      SizedBox(
-                        width: 42,
-                        height: 42,
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            padding: EdgeInsets.zero,
-                            backgroundColor: track.isMuted ? StageTheme.alertRed : StageTheme.surfaceElevated,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      // Botón MUTE profesional con LED
+                      GestureDetector(
+                        onTap: () => _player.toggleMute(track.name),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          width: 48,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: track.isMuted
+                                ? StageTheme.alertRed
+                                : StageTheme.surfaceElevated,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: track.isMuted ? StageTheme.alertRed : StageTheme.border,
+                              width: 1.2,
+                            ),
+                            boxShadow: track.isMuted
+                                ? [BoxShadow(color: StageTheme.alertRed.withValues(alpha: 0.4), blurRadius: 8)]
+                                : null,
                           ),
-                          onPressed: () => _player.toggleMute(track.name),
-                          child: const Text("M", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                          alignment: Alignment.center,
+                          child: Text(
+                            "MUTE",
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.5,
+                              color: track.isMuted ? Colors.white : StageTheme.textSecondary,
+                            ),
+                          ),
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 6),
 
-                      SizedBox(
-                        width: 42,
-                        height: 42,
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            padding: EdgeInsets.zero,
-                            backgroundColor: track.isSolo ? StageTheme.amberGold : StageTheme.surfaceElevated,
-                            foregroundColor: track.isSolo ? Colors.black : Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      // Botón SOLO profesional con LED
+                      GestureDetector(
+                        onTap: () => _player.toggleSolo(track.name),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          width: 48,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: track.isSolo
+                                ? StageTheme.amberGold
+                                : StageTheme.surfaceElevated,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: track.isSolo ? StageTheme.amberGold : StageTheme.border,
+                              width: 1.2,
+                            ),
+                            boxShadow: track.isSolo
+                                ? [BoxShadow(color: StageTheme.amberGold.withValues(alpha: 0.4), blurRadius: 8)]
+                                : null,
                           ),
-                          onPressed: () => _player.toggleSolo(track.name),
-                          child: const Text("S", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                          alignment: Alignment.center,
+                          child: Text(
+                            "SOLO",
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.5,
+                              color: track.isSolo ? Colors.black : StageTheme.textSecondary,
+                            ),
+                          ),
                         ),
                       ),
                     ],
