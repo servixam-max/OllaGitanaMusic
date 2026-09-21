@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Olla Gitana Music Backend"
-    VERSION: str = "1.0.16"
+    VERSION: str = "1.0.17"
     PORT: int = 8000
     DATA_DIR: str = os.getenv("DATA_DIR", "./data")
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./data/olla_gitana.db")
@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     @property
     def stems_dir(self) -> Path:
         path = Path(self.DATA_DIR) / "stems"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    @property
+    def previews_dir(self) -> Path:
+        path = Path(self.DATA_DIR) / "previews"
         path.mkdir(parents=True, exist_ok=True)
         return path
 

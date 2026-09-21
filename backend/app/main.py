@@ -128,6 +128,7 @@ async def lifespan(app: FastAPI):
     await init_db()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     settings.stems_dir.mkdir(parents=True, exist_ok=True)
+    settings.previews_dir.mkdir(parents=True, exist_ok=True)
     # Iniciar comprobación y sincronización de la versión web en segundo plano
     asyncio.create_task(sync_web_app())
     yield
@@ -151,6 +152,7 @@ app.add_middleware(
 # Montar directorios estáticos con soporte nativo de Range Requests (HTTP 206) para streaming de audio
 app.mount("/static/stems", StaticFiles(directory=str(settings.stems_dir)), name="stems")
 app.mount("/static/uploads", StaticFiles(directory=str(settings.upload_dir)), name="uploads")
+app.mount("/static/previews", StaticFiles(directory=str(settings.previews_dir)), name="previews")
 
 # Redirección amigable para asegurar la barra final en la Web PWA
 @app.get("/app")

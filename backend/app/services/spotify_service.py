@@ -150,3 +150,50 @@ class SpotifyService:
             except Exception as e:
                 print(f"[MusicService] Error buscando en iTunes: {e}")
         return []
+
+    @classmethod
+    async def get_fresh_preview_url(
+        cls,
+        spotify_id: Optional[str] = None,
+        title: Optional[str] = None,
+        artist: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        Obtiene una URL de audio preview válida y fresca (no expirada)
+        utilizando el ID de proveedor o realizando una búsqueda directa.
+        """
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            # 1. Si es ID de Deezer (deezer_12345)
+            if spotify_id and spotify_id.startswith("deezer_"):
+                track_id = spotify_id.replace("deezer_", "")
+                try:
+                    resp = await client.get(f"https://api.deezer.com/track/{track_id}")
+                    if resp.status_code == 200:
+                        preview = resp.json().get("preview")
+                        if preview:
+                            return preview
+                except Exception as e:
+                    print(f"[PreviewService] Error obteniendo track Deezer {track_id}: {e}")
+
+            # 2. Si es ID de iTunes (itunes_12345)
+            if spotify_id and spotify_id.startswith("itunes_"):
+                track_id = spotify_id.replace("itunes_", "")
+                try:
+                    resp = await client.get("https://itunes.apple.com/lookup", params={"id": track_id})
+                    if resp.status_code == 200:
+                        results = resp.json().get("results", [])
+                        if results and results[0].get("previewUrl"):
+                            return results[0]["previewUrl"]
+                except Exception as e:
+                    print(f"[PreviewService] Error lookup iTunes {track_id}: {e}")
+
+            # 3. Fallback: buscar por título y artista
+            if title:
+                q = f"{title} {artist or ''}".strip()
+                tracks = await cls.search_tracks(q, limit=5)
+                for t in tracks:
+                    if t.get("preview_url"):
+                        return t["preview_url"]
+
+        return None
+

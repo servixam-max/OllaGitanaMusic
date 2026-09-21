@@ -88,23 +88,32 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
 
   Future<void> _togglePreview(int songId, String? previewUrl) async {
     if (previewUrl == null || previewUrl.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Esta canción no cuenta con snippet de 30s disponible")),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Esta canción no cuenta con snippet de 30s disponible")),
+        );
+      }
       return;
     }
 
     if (_playingPreviewSongId == songId) {
       await _previewPlayer.stop();
-      setState(() => _playingPreviewSongId = null);
+      if (mounted) setState(() => _playingPreviewSongId = null);
     } else {
       await _previewPlayer.stop();
-      setState(() => _playingPreviewSongId = songId);
+      if (mounted) setState(() => _playingPreviewSongId = songId);
       try {
-        await _previewPlayer.setUrl(previewUrl);
+        final fullUrl = _api.getFullUrl(previewUrl);
+        await _previewPlayer.setUrl(fullUrl);
         await _previewPlayer.play();
       } catch (e) {
-        setState(() => _playingPreviewSongId = null);
+        print("[Repertoire] Error reproduciendo preview $songId: $e");
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("No se pudo reproducir el preview de audio")),
+          );
+          setState(() => _playingPreviewSongId = null);
+        }
       }
     }
   }
@@ -748,7 +757,7 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                     ),
                     onPressed: () {
                       _togglePreview(song["id"] as int, song["preview_url"] as String?);
-                      Navigator.pop(ctx);
+                      setSheetState(() {});
                     },
                   ),
                   const SizedBox(height: 12),
@@ -848,7 +857,8 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                 await dialogPlayer.stop();
                 setModalState(() => playingUrl = url);
                 try {
-                  await dialogPlayer.setUrl(url);
+                  final fullUrl = _api.getFullUrl(url);
+                  await dialogPlayer.setUrl(fullUrl);
                   await dialogPlayer.play();
                 } catch (_) {
                   setModalState(() => playingUrl = null);
