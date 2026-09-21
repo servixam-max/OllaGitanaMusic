@@ -25,11 +25,11 @@ jobs:
           cache: 'pip'
           cache-dependency-path: backend/requirements.txt
 
-      - name: Instalar dependencias de test (sin torch/demucs para rapidez)
+      - name: Instalar dependencias de test (sin torch/demucs/librosa para rapidez)
         run: |
           cd backend
           python -m pip install --upgrade pip
-          pip install fastapi "uvicorn[standard]" pydantic pydantic-settings sqlalchemy aiosqlite greenlet httpx python-multipart aiofiles websockets pytest pytest-asyncio
+          pip install fastapi "uvicorn[standard]" pydantic pydantic-settings sqlalchemy aiosqlite greenlet httpx python-multipart aiofiles websockets numpy pytest pytest-asyncio
 
       - name: Ejecutar tests
         run: |
