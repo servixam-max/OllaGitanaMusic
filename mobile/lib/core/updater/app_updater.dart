@@ -8,7 +8,7 @@ class AppUpdater {
   /// Versión de la app. Se inyecta en compilación con:
   /// flutter build apk --dart-define=APP_VERSION=v1.1.0
   /// Por defecto usa la versión del pubspec en el momento de este cambio.
-  static const String currentVersion = String.fromEnvironment("APP_VERSION", defaultValue: "v1.1.0");
+  static const String currentVersion = String.fromEnvironment("APP_VERSION", defaultValue: "v1.1.1");
   static const String repoUrl = "https://api.github.com/repos/servixam-max/OllaGitanaMusic/releases/latest";
 
   /// Comprueba semánticamente si una versión es superior a otra (ej. v1.0.12 > v1.0.9)

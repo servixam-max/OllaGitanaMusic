@@ -197,6 +197,65 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
     }
   }
 
+  IconData _getStatusIcon(String status) {
+    switch (status) {
+      case "propuesta": return Icons.thumb_up_outlined;
+      case "para_ensayar": return Icons.queue_music;
+      case "en_repertorio": return Icons.library_music;
+      case "descartada": return Icons.thumb_down_outlined;
+      default: return Icons.circle_outlined;
+    }
+  }
+
+  /// Menú inline de cambio de estado al tocar el chip directamente en la lista compacta
+  void _showInlineStatusMenu(BuildContext context, dynamic song) {
+    final statusValues = ["propuesta", "para_ensayar", "en_repertorio", "descartada"];
+    final currentStatus = song["status"] as String? ?? "";
+    final RenderBox renderBox = context.findRenderObject() as RenderBox;
+    final offset = renderBox.localToGlobal(Offset.zero);
+    final size = renderBox.size;
+
+    showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        offset.dx,
+        offset.dy + size.height,
+        offset.dx + size.width,
+        offset.dy + size.height + 4,
+      ),
+      color: StageTheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: StageTheme.border),
+      ),
+      items: statusValues.map((status) {
+        final color = _getStatusColor(status);
+        final isSelected = status == currentStatus;
+        return PopupMenuItem<String>(
+          value: status,
+          child: Row(
+            children: [
+              Icon(_getStatusIcon(status), color: color, size: 18),
+              const SizedBox(width: 10),
+              Text(
+                _getStatusLabel(status),
+                style: TextStyle(
+                  color: isSelected ? color : StageTheme.textPrimary,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+              if (isSelected) ...[ const Spacer(), Icon(Icons.check, color: color, size: 16) ],
+            ],
+          ),
+        );
+      }).toList(),
+    ).then((newStatus) {
+      if (newStatus != null && newStatus != currentStatus) {
+        _changeStatus(song["id"] as int, newStatus);
+      }
+    });
+  }
+
   Future<void> _shareRepertoireOnWhatsApp() async {
     List<dynamic> songsToShare = _songs;
     if (songsToShare.isEmpty) {
@@ -428,96 +487,124 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
 
         return Card(
           margin: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => _showSongDetailSheet(song),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              child: Row(
-                children: [
-                  // Portada pequeña
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(6),
-                    child: song["cover_url"] != null
-                        ? Image.network(
-                            song["cover_url"] as String,
-                            width: 44,
-                            height: 44,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => _placeholderCover(44),
-                          )
-                        : _placeholderCover(44),
-                  ),
-                  const SizedBox(width: 10),
-                  // Título y artista
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          song["title"] as String? ?? "",
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        Text(
-                          song["artist"] as String? ?? "",
-                          style: const TextStyle(color: StageTheme.textSecondary, fontSize: 12),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                  // Rating compacto
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
+          clipBehavior: Clip.antiAlias,
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Borde de color según estado
+                Container(width: 4, color: statusColor),
+                Expanded(
+                  child: InkWell(
+                    borderRadius: const BorderRadius.horizontal(right: Radius.circular(12)),
+                    onTap: () => _showSongDetailSheet(song),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      child: Row(
                         children: [
-                          Icon(Icons.star, size: 12, color: StageTheme.amberGold),
+                          // Portada pequeña
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(6),
+                            child: song["cover_url"] != null
+                                ? Image.network(
+                                    song["cover_url"] as String,
+                                    width: 44,
+                                    height: 44,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => _placeholderCover(44),
+                                  )
+                                : _placeholderCover(44),
+                          ),
+                          const SizedBox(width: 10),
+                          // Título y artista
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  song["title"] as String? ?? "",
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  song["artist"] as String? ?? "",
+                                  style: const TextStyle(color: StageTheme.textSecondary, fontSize: 12),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          // Columna derecha: rating + estado tocable
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.star, size: 12, color: StageTheme.amberGold),
+                                  const SizedBox(width: 2),
+                                  Text(
+                                    "${(song["average_rating"] as num?)?.toStringAsFixed(1) ?? "0.0"}",
+                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              // Chip de estado TOCABLE directamente sin abrir el detail sheet
+                              GestureDetector(
+                                onTap: () => _showInlineStatusMenu(context, song),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: statusColor.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: statusColor.withValues(alpha: 0.6), width: 1),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        _getStatusLabel(song["status"] as String? ?? ""),
+                                        style: TextStyle(fontSize: 10, color: statusColor, fontWeight: FontWeight.bold),
+                                      ),
+                                      const SizedBox(width: 2),
+                                      Icon(Icons.arrow_drop_down, size: 12, color: statusColor),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                           const SizedBox(width: 2),
-                          Text(
-                            "${(song["average_rating"] as num?)?.toStringAsFixed(1) ?? "0.0"}",
-                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                          // Play button
+                          IconButton(
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                            icon: Icon(
+                              isPlayingThis ? Icons.pause_circle_filled : Icons.play_circle_fill,
+                              color: song["preview_url"] != null ? StageTheme.flameOrange : StageTheme.textMuted,
+                              size: 32,
+                            ),
+                            onPressed: () => _togglePreview(song["id"] as int, song["preview_url"] as String?),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 2),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: statusColor.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          _getStatusLabel(song["status"] as String? ?? ""),
-                          style: TextStyle(fontSize: 10, color: statusColor, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(width: 4),
-                  // Play button
-                  IconButton(
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                    icon: Icon(
-                      isPlayingThis ? Icons.pause_circle_filled : Icons.play_circle_fill,
-                      color: song["preview_url"] != null ? StageTheme.flameOrange : StageTheme.textMuted,
-                      size: 32,
                     ),
-                    onPressed: () => _togglePreview(song["id"] as int, song["preview_url"] as String?),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         );
       },
     );
   }
+
 
   /// Vista tarjetas: la vista original, más detallada
   Widget _buildCardList() {

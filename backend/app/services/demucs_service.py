@@ -34,8 +34,8 @@ PRESETS: Dict[str, Dict[str, object]] = {
     "balanced": {
         "label": "Equilibrada",
         "model": "htdemucs_ft",
-        "shifts": 1,
-        "overlap": 0.5,
+        "shifts": 0,  # shifts≥1 suprime la voz en htdemucs_ft
+        "overlap": 0.25,
         "format": "mp3",
         "bitrate": "320",
         "description": "4 pistas de alta calidad (voz/batería/bajo/otros).",
@@ -43,8 +43,8 @@ PRESETS: Dict[str, Dict[str, object]] = {
     "max": {
         "label": "Máxima",
         "model": "htdemucs_ft",
-        "shifts": 4,
-        "overlap": 0.75,
+        "shifts": 0,  # shifts≥1 suprime la voz; overlap 0.5 da mayor precisión
+        "overlap": 0.5,
         "format": "wav",
         "bitrate": None,
         "description": "4 pistas en WAV 24-bit para loops y búsqueda con precisión de muestra.",
@@ -52,17 +52,17 @@ PRESETS: Dict[str, Dict[str, object]] = {
     "six": {
         "label": "6 pistas",
         "model": "htdemucs_6s",
-        "shifts": 1,
-        "overlap": 0.5,
+        "shifts": 0,  # shifts≥1 suprime la voz en htdemucs_6s
+        "overlap": 0.25,
         "format": "mp3",
         "bitrate": "320",
-        "description": "Separa también guitarra y piano (menor definición general).",
+        "description": "Separa también guitarra y piano (voz, batería, bajo, guitarra, piano, otros).",
     },
     "hybrid": {
         "label": "Híbrida (recomendada)",
         "model": "hybrid",
-        "shifts": 1,
-        "overlap": 0.5,
+        "shifts": 0,  # shifts≥1 suprime la voz; probado y confirmado
+        "overlap": 0.25,
         "format": "mp3",
         "bitrate": "320",
         "description": "Voz/batería/bajo/otros con el modelo fine-tuned + guitarra y piano del modelo 6s. La mejor calidad global.",
@@ -70,8 +70,8 @@ PRESETS: Dict[str, Dict[str, object]] = {
     "karaoke": {
         "label": "Karaoke",
         "model": "htdemucs_ft",
-        "shifts": 1,
-        "overlap": 0.5,
+        "shifts": 0,  # shifts≥1 suprime la voz
+        "overlap": 0.25,
         "format": "mp3",
         "bitrate": "320",
         "two_stems": "vocals",

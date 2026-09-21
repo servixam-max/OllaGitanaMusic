@@ -74,6 +74,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     MixerScreen(),
     LyricsScreen(),
     ChordsScreen(),
+    SettingsScreen(),
   ];
 
   @override
@@ -81,10 +82,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
-        children: [
-          ..._screens,
-          SettingsScreen(),
-        ],
+        children: _screens,
       ),
       bottomNavigationBar: NavigationBar(
         backgroundColor: StageTheme.surface,
@@ -117,6 +115,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             icon: Icon(Icons.music_note, color: StageTheme.textSecondary),
             selectedIcon: Icon(Icons.music_note, color: StageTheme.flameOrange),
             label: "Acordes",
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.settings_outlined, color: StageTheme.textSecondary),
+            selectedIcon: Icon(Icons.settings, color: StageTheme.flameOrange),
+            label: "Ajustes",
           ),
         ],
       ),
