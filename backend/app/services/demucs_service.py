@@ -14,12 +14,12 @@ from app.services.ws_manager import ws_manager
 
 class DemucsService:
     @classmethod
-    async def process_audio(cls, task_id: str, input_path: Path, model_name: str = "htdemucs_ft"):
+    async def process_audio(cls, task_id: str, input_path: Path, model_name: str = "htdemucs_6s"):
         """
         Ejecuta la separación de pistas con Demucs en segundo plano con aceleración
         por hardware (Metal / MPS en Apple Silicon o CUDA) y progreso real en vivo vía WebSocket.
-        Incluye estabilización de transitorios (--shifts 1) y solapamiento del 50% (--overlap 0.5)
-        para máxima definición en batería/percusión sin comerse los golpes.
+        Usa htdemucs_6s: 6 pistas de máxima calidad (Voz, Batería, Bajo, Guitarra, Piano, Otros).
+        Incluye --shifts 1 y --overlap 0.5 para máxima definición.
         """
         output_base_dir = settings.stems_dir / task_id
         output_base_dir.mkdir(parents=True, exist_ok=True)
@@ -48,13 +48,13 @@ class DemucsService:
         try:
             await update_status("processing", 5)
             
-            # Detectar el ejecutable de Python o entorno virtual donde demucs está instalado
+            # Detectar el ejecutable de Python del entorno virtual donde está demucs
             python_exe = sys.executable
             venv_python = Path(__file__).resolve().parents[3] / ".venv" / "bin" / "python"
             if venv_python.exists():
                 python_exe = str(venv_python)
 
-            # Detectar si demucs está disponible
+            # Verificar que demucs está disponible
             has_demucs = False
             try:
                 check_proc = await asyncio.create_subprocess_exec(
@@ -68,7 +68,7 @@ class DemucsService:
                 has_demucs = shutil.which("demucs") is not None
 
             if has_demucs:
-                # Detectar aceleración por hardware
+                # Detectar aceleración por hardware (MPS en Apple Silicon / CUDA en NVIDIA)
                 device = "cpu"
                 try:
                     dev_proc = await asyncio.create_subprocess_exec(
@@ -101,6 +101,7 @@ class DemucsService:
                 env = os.environ.copy()
                 env["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
+                print(f"[DemucsService] Ejecutando: {' '.join(cmd)}")
                 process = await asyncio.create_subprocess_exec(
                     *cmd,
                     stdout=asyncio.subprocess.PIPE,
@@ -112,14 +113,9 @@ class DemucsService:
                 err_output = []
                 pct_regex = re.compile(r'(\d+)%')
 
-                # htdemucs_ft es un conjunto de 4 modelos especializados (uno por instrumento)
-                total_models = 4 if model_name == "htdemucs_ft" else 1
-                current_model = 0
-                last_sub_pct = 0
-
                 # Lectura en tiempo real de stderr para capturar el avance exacto de Demucs (tqdm)
                 async def read_stderr():
-                    nonlocal last_progress, current_model, last_sub_pct
+                    nonlocal last_progress
                     buffer = ""
                     while True:
                         chunk = await process.stderr.read(256)
@@ -132,14 +128,8 @@ class DemucsService:
                         matches = pct_regex.findall(buffer)
                         if matches:
                             raw_pct = int(matches[-1])
-                            # Si el porcentaje cae significativamente, significa que arrancó el siguiente sub-modelo
-                            if raw_pct < last_sub_pct - 25:
-                                current_model = min(current_model + 1, total_models - 1)
-                            last_sub_pct = raw_pct
-
-                            overall_pct = (current_model * 100 + raw_pct) / total_models
-                            # Mapear de 5% a 95%
-                            scaled_pct = int(5 + (overall_pct * 0.90))
+                            # Mapear de 5% a 95% linealmente
+                            scaled_pct = int(5 + (raw_pct * 0.90))
                             if scaled_pct > last_progress:
                                 last_progress = scaled_pct
                                 await update_status("processing", scaled_pct)
@@ -161,8 +151,8 @@ class DemucsService:
                     await update_status("failed", 0, error=err_msg[:500])
                     return
             else:
-                # Fallback con filtros de frecuencia por ffmpeg
-                print("[DemucsService] Generando pistas filtradas con ffmpeg...")
+                # Fallback con filtros de frecuencia por ffmpeg cuando demucs no está disponible
+                print("[DemucsService] Demucs no disponible, usando filtros ffmpeg como fallback...")
                 model_dir = output_base_dir / model_name / input_path.stem
                 model_dir.mkdir(parents=True, exist_ok=True)
                 
@@ -170,11 +160,10 @@ class DemucsService:
                     "vocals": "bandpass=f=1500:width_type=h:w=2000",
                     "drums": "highpass=f=40,lowpass=f=6000",
                     "bass": "lowpass=f=250",
+                    "guitar": "bandpass=f=1200:width_type=h:w=1800",
+                    "piano": "bandpass=f=800:width_type=h:w=1200",
                     "other": "highpass=f=800",
                 }
-                if "6s" in model_name:
-                    filters["guitar"] = "bandpass=f=1200:width_type=h:w=1800"
-                    filters["piano"] = "bandpass=f=800:width_type=h:w=1200"
 
                 step_pct = 80 // len(filters)
                 curr_p = 10
@@ -193,7 +182,7 @@ class DemucsService:
                     curr_p += step_pct
                     await update_status("processing", min(curr_p, 90))
 
-            # Buscar las pistas generadas en la carpeta de salida (mp3 o wav)
+            # Buscar las pistas generadas en la carpeta de salida
             stems_dict = {}
             track_stem_dir = output_base_dir / model_name / input_path.stem
             
@@ -212,8 +201,11 @@ class DemucsService:
                         rel_path = file.relative_to(settings.stems_dir)
                         stems_dict[file.stem] = f"/static/stems/{rel_path}"
 
-            await update_status("completed", 100, stems=stems_dict)
-            print(f"[DemucsService] Separación completada con éxito para tarea {task_id}: {stems_dict}")
+            if stems_dict:
+                await update_status("completed", 100, stems=stems_dict)
+                print(f"[DemucsService] Separación completada para tarea {task_id}: {list(stems_dict.keys())}")
+            else:
+                await update_status("failed", 0, error="No se encontraron pistas de salida en el directorio esperado")
 
         except Exception as e:
             print(f"[DemucsService] Excepción procesando audio: {e}")

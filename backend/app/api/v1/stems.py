@@ -1,11 +1,11 @@
-import asyncio
 import json
 import uuid
 import aiofiles
-from typing import List, Optional
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
+from pydantic import BaseModel
+from typing import Optional
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -14,21 +14,20 @@ from app.services.demucs_service import DemucsService
 
 router = APIRouter(prefix="/stems", tags=["Stems Separator"])
 
+
 @router.post("/upload")
 async def upload_audio_for_stems(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    model: str = Form("htdemucs_ft"),  # "htdemucs_ft", "htdemucs_6s", "htdemucs"
+    collection_name: str = Form(""),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Sube un archivo de audio (MP3, WAV, etc.) y lanza la separación de pistas con Demucs en segundo plano.
+    Siempre usa htdemucs_6s: 6 pistas de máxima calidad (Voz, Batería, Bajo, Guitarra, Piano, Otros).
     """
     if not file.filename.lower().endswith((".mp3", ".wav", ".flac", ".ogg", ".m4a")):
         raise HTTPException(status_code=400, detail="Formato no soportado. Formatos válidos: MP3, WAV, FLAC, OGG, M4A")
-
-    if model not in ("htdemucs_ft", "htdemucs_6s", "htdemucs"):
-        model = "htdemucs_ft"
 
     task_id = str(uuid.uuid4())
     ext = file.filename.split(".")[-1]
@@ -44,22 +43,25 @@ async def upload_audio_for_stems(
     task = StemTask(
         id=task_id,
         original_filename=file.filename,
+        collection_name=collection_name.strip() if collection_name and collection_name.strip() else None,
         status="pending",
         progress=0
     )
     db.add(task)
     await db.commit()
 
-    # Lanzar la separación en segundo plano
-    background_tasks.add_task(DemucsService.process_audio, task_id, input_path, model)
+    # Lanzar la separación en segundo plano con el mejor modelo
+    background_tasks.add_task(DemucsService.process_audio, task_id, input_path, "htdemucs_6s")
 
     return {
         "task_id": task_id,
         "filename": file.filename,
+        "collection_name": task.collection_name,
         "status": "pending",
-        "message": "Archivo recibido. Separación de pistas iniciada.",
+        "message": "Archivo recibido. Separación de pistas iniciada en el servidor.",
         "ws_url": f"/ws/tasks/{task_id}"
     }
+
 
 @router.get("/tasks/{task_id}")
 async def get_stem_task(task_id: str, db: AsyncSession = Depends(get_db)):
@@ -75,6 +77,7 @@ async def get_stem_task(task_id: str, db: AsyncSession = Depends(get_db)):
     return {
         "task_id": task.id,
         "filename": task.original_filename,
+        "collection_name": task.collection_name,
         "status": task.status,
         "progress": task.progress,
         "stems": stems,
@@ -82,10 +85,11 @@ async def get_stem_task(task_id: str, db: AsyncSession = Depends(get_db)):
         "created_at": task.created_at.isoformat()
     }
 
+
 @router.get("/tasks")
-async def list_stem_tasks(limit: int = 20, db: AsyncSession = Depends(get_db)):
+async def list_stem_tasks(limit: int = 50, db: AsyncSession = Depends(get_db)):
     """
-    Lista las tareas recientes de separación de pistas.
+    Lista las tareas de separación de pistas, ordenadas por fecha reciente.
     """
     query = select(StemTask).order_by(desc(StemTask.created_at)).limit(limit)
     result = await db.execute(query)
@@ -96,6 +100,7 @@ async def list_stem_tasks(limit: int = 20, db: AsyncSession = Depends(get_db)):
             "id": t.id,
             "task_id": t.id,
             "filename": t.original_filename,
+            "collection_name": t.collection_name,
             "status": t.status,
             "progress": t.progress,
             "stems": json.loads(t.stems_json) if t.stems_json else {},
@@ -103,6 +108,40 @@ async def list_stem_tasks(limit: int = 20, db: AsyncSession = Depends(get_db)):
         }
         for t in tasks
     ]
+
+
+class CollectionUpdate(BaseModel):
+    collection_name: Optional[str] = None
+
+
+@router.patch("/tasks/{task_id}/collection")
+async def update_task_collection(task_id: str, body: CollectionUpdate, db: AsyncSession = Depends(get_db)):
+    """
+    Asigna o cambia la colección/grupo de una canción.
+    """
+    task = await db.get(StemTask, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Tarea no encontrada")
+
+    task.collection_name = body.collection_name.strip() if body.collection_name and body.collection_name.strip() else None
+    await db.commit()
+
+    return {"task_id": task_id, "collection_name": task.collection_name}
+
+
+@router.get("/collections")
+async def list_collections(db: AsyncSession = Depends(get_db)):
+    """
+    Devuelve la lista de nombres de colecciones distintos que tienen canciones completadas.
+    """
+    query = select(StemTask.collection_name).where(
+        StemTask.collection_name != None,
+        StemTask.status == "completed"
+    ).distinct()
+    result = await db.execute(query)
+    names = [r[0] for r in result.fetchall() if r[0]]
+    return {"collections": sorted(names)}
+
 
 @router.delete("/tasks/{task_id}")
 async def delete_stem_task(task_id: str, db: AsyncSession = Depends(get_db)):

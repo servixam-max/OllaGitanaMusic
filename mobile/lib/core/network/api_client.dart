@@ -150,7 +150,7 @@ class ApiClient {
     String? filePath,
     Uint8List? fileBytes,
     String? fileName,
-    String model = "htdemucs_ft",
+    String? collectionName,
     void Function(int sent, int total)? onProgress,
   }) async {
     try {
@@ -166,7 +166,7 @@ class ApiClient {
 
       final formData = FormData.fromMap({
         "file": multipartFile,
-        "model": model,
+        "collection_name": collectionName ?? "",
       });
 
       final response = await _dio.post(
@@ -201,6 +201,18 @@ class ApiClient {
   Future<bool> deleteStemTask(String taskId) async {
     try {
       await _dio.delete("/api/v1/stems/tasks/$taskId");
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> setTaskCollection(String taskId, String? collectionName) async {
+    try {
+      await _dio.patch(
+        "/api/v1/stems/tasks/$taskId/collection",
+        data: {"collection_name": collectionName},
+      );
       return true;
     } catch (_) {
       return false;

@@ -8,6 +8,7 @@ class StemTask(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     original_filename = Column(String(255), nullable=False)
+    collection_name = Column(String(255), nullable=True)  # Grupo/Colección de la canción
     status = Column(String(50), default="pending")  # pending, processing, completed, failed
     progress = Column(Integer, default=0)  # 0 a 100
     stems_json = Column(Text, nullable=True)  # JSON string con URLs de cada pista
