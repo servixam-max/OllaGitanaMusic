@@ -89,8 +89,10 @@ class DemucsService:
                     python_exe, "-m", "demucs.separate",
                     "-n", model_name,
                     "-d", device,
-                    "--shifts", "1",
-                    "--overlap", "0.5",
+                    # NO usar --shifts: con htdemucs_6s el promediado de shifts
+                    # puede cancelar la voz por diferencias de fase en canciones
+                    # con mucha reverberación o instrumentos superpuestos.
+                    "--overlap", "0.25",  # Valor estándar (0.5 era demasiado alto)
                     "--clip-mode", "rescale",
                     "--mp3",
                     "--mp3-bitrate", "320",
