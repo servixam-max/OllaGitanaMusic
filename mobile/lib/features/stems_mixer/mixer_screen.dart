@@ -719,61 +719,91 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
             )
           else if (!_isUploading && !hasActiveTask)
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(16),
-                      child: Image.asset(
-                        "assets/images/band_hero.jpg",
-                        height: 120,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
+              child: RefreshIndicator(
+                onRefresh: _loadRecentTasks,
+                color: StageTheme.flameOrange,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: Image.asset(
+                          "assets/images/band_hero.jpg",
+                          height: 110,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      "Mezclador Multipista de Ensayo",
-                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 6),
-                    const Text(
-                      "Aísla pistas con IA para ensayar cualquier instrumento, con bucle A-B y precisión de muestra.",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: StageTheme.textSecondary, fontSize: 13),
-                    ),
-                    const SizedBox(height: 16),
-                    ElevatedButton.icon(
-                      icon: const Icon(Icons.cloud_upload, size: 22),
-                      label: const Text("Subir Nueva Canción"),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: StageTheme.flameOrange,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      const SizedBox(height: 16),
+                      const Text(
+                        "Mezclador Multipista de Ensayo",
+                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.3),
                       ),
-                      onPressed: _pickAndUploadAudio,
-                    ),
-                    const SizedBox(height: 24),
+                      const SizedBox(height: 6),
+                      const Text(
+                        "Aísla pistas con IA para ensayar cualquier instrumento, con bucle A-B y sincronía fina.",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: StageTheme.textSecondary, fontSize: 13),
+                      ),
+                      const SizedBox(height: 12),
 
-                    // Lista de canciones procesadas agrupadas por colección
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          "Canciones Procesadas",
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      // Banner de Servidor Central / Nube de la Banda
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: StageTheme.surfaceElevated,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: StageTheme.electricGreen.withValues(alpha: 0.3)),
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.refresh, size: 20, color: StageTheme.amberGold),
-                          tooltip: "Refrescar lista",
-                          onPressed: _loadRecentTasks,
+                        child: const Row(
+                          children: [
+                            Icon(Icons.cloud_sync_rounded, color: StageTheme.electricGreen, size: 22),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                "Servidor Olla Gitana: Todas las canciones y pistas se guardan en la nube y están sincronizadas para toda la banda.",
+                                style: TextStyle(color: StageTheme.textSecondary, fontSize: 11, height: 1.3),
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    _buildGroupedTaskList(),
-                  ],
+                      ),
+                      const SizedBox(height: 16),
+
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.cloud_upload_rounded, size: 20),
+                        label: const Text("Subir Nueva Canción"),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: StageTheme.flameOrange,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 13),
+                          elevation: 4,
+                        ),
+                        onPressed: _pickAndUploadAudio,
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Lista de canciones procesadas agrupadas por colección
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            "Canciones en el Servidor",
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.refresh_rounded, size: 20, color: StageTheme.amberGold),
+                            tooltip: "Refrescar lista del servidor",
+                            onPressed: _loadRecentTasks,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      _buildGroupedTaskList(),
+                    ],
+                  ),
                 ),
               ),
             )
@@ -928,82 +958,171 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
     final isCompleted = status == "completed";
     final isProcessing = status == "processing" || status == "pending" || status == "queued";
     final canRetry = status == "failed" || status == "interrupted" || status == "pending";
+    final isCurrentLoaded = _currentLoadedSongName == filename;
     final stemCount = stems.length;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        leading: CircleAvatar(
-          backgroundColor: isCompleted
-              ? StageTheme.electricGreen.withValues(alpha: 0.2)
-              : isProcessing
-                  ? StageTheme.amberGold.withValues(alpha: 0.2)
-                  : StageTheme.alertRed.withValues(alpha: 0.2),
-          child: Icon(
-            isCompleted
-                ? Icons.check
-                : isProcessing
-                    ? Icons.hourglass_top
-                    : Icons.error_outline,
-            color: isCompleted
-                ? StageTheme.electricGreen
-                : isProcessing
-                    ? StageTheme.amberGold
-                    : StageTheme.alertRed,
-            size: 20,
-          ),
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: isCurrentLoaded
+            ? StageTheme.flameOrange.withValues(alpha: 0.12)
+            : StageTheme.surfaceElevated,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isCurrentLoaded
+              ? StageTheme.flameOrange
+              : StageTheme.border,
+          width: isCurrentLoaded ? 1.5 : 1.0,
         ),
-        title: Text(filename, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-        subtitle: Text(
-          isCompleted
-              ? "$stemCount pistas${preset != null ? ' · $preset' : ''}: ${stems.keys.map(_getStemLabel).join(', ')}"
-              : isProcessing
-                  ? (status == "queued" ? "En cola..." : "Procesando...")
-                  : (error ?? "Estado: $status"),
-          style: TextStyle(
-            fontSize: 11,
-            color: isCompleted ? StageTheme.textSecondary : (error != null ? StageTheme.alertRed : StageTheme.textSecondary),
-          ),
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Mover a colección
-            IconButton(
-              icon: const Icon(Icons.folder_outlined, size: 20, color: StageTheme.textSecondary),
-              tooltip: "Colección",
-              onPressed: () => _renameTaskCollection(taskId, collection),
-            ),
-            // Eliminar
-            IconButton(
-              icon: const Icon(Icons.delete_outline, size: 20, color: StageTheme.alertRed),
-              tooltip: "Eliminar",
-              onPressed: () => _deleteTask(taskId, filename),
-            ),
-            // Reintentar si falló o se interrumpió
-            if (canRetry)
-              IconButton(
-                icon: const Icon(Icons.refresh, size: 20, color: StageTheme.amberGold),
-                tooltip: "Reintentar separación",
-                onPressed: () => _retryTask(taskId),
-              ),
-            // Cargar si está completa
-            if (isCompleted) ...[
-              const SizedBox(width: 2),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: StageTheme.amberGold,
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                  minimumSize: const Size(56, 34),
+            Row(
+              children: [
+                // Icono de estado
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: isCompleted
+                        ? StageTheme.electricGreen.withValues(alpha: 0.15)
+                        : isProcessing
+                            ? StageTheme.amberGold.withValues(alpha: 0.15)
+                            : StageTheme.alertRed.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    isCompleted
+                        ? (isCurrentLoaded ? Icons.volume_up_rounded : Icons.music_note_rounded)
+                        : isProcessing
+                            ? Icons.hourglass_top_rounded
+                            : Icons.error_outline_rounded,
+                    color: isCompleted
+                        ? (isCurrentLoaded ? StageTheme.flameOrange : StageTheme.electricGreen)
+                        : isProcessing
+                            ? StageTheme.amberGold
+                            : StageTheme.alertRed,
+                    size: 20,
+                  ),
                 ),
-                child: const Text("Cargar", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                onPressed: () => _loadCompletedTaskStems(filename, stems),
-              ),
-            ],
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              filename,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                                color: isCurrentLoaded ? StageTheme.flameOrange : Colors.white,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (isCurrentLoaded)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: StageTheme.flameOrange,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Text(
+                                "EN REPRODUCCIÓN",
+                                style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        isCompleted
+                            ? "$stemCount pistas (${stems.keys.map(_getStemLabel).join(', ')})"
+                            : isProcessing
+                                ? (status == "queued" ? "En cola del servidor..." : "Separando en el servidor...")
+                                : (error ?? "Estado: $status"),
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: error != null ? StageTheme.alertRed : StageTheme.textSecondary,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                if (preset != null && isCompleted)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: StageTheme.surface,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: StageTheme.border),
+                    ),
+                    child: Text(
+                      "Preset: $preset",
+                      style: const TextStyle(fontSize: 10, color: StageTheme.textMuted),
+                    ),
+                  ),
+                const Spacer(),
+                // Mover a colección
+                IconButton(
+                  icon: const Icon(Icons.folder_outlined, size: 18, color: StageTheme.textSecondary),
+                  tooltip: "Mover a colección",
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  padding: EdgeInsets.zero,
+                  onPressed: () => _renameTaskCollection(taskId, collection),
+                ),
+                const SizedBox(width: 4),
+                // Eliminar
+                IconButton(
+                  icon: const Icon(Icons.delete_outline_rounded, size: 18, color: StageTheme.alertRed),
+                  tooltip: "Eliminar canción",
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  padding: EdgeInsets.zero,
+                  onPressed: () => _deleteTask(taskId, filename),
+                ),
+                if (canRetry) ...[
+                  const SizedBox(width: 4),
+                  IconButton(
+                    icon: const Icon(Icons.refresh_rounded, size: 18, color: StageTheme.amberGold),
+                    tooltip: "Reintentar separación",
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    padding: EdgeInsets.zero,
+                    onPressed: () => _retryTask(taskId),
+                  ),
+                ],
+                if (isCompleted) ...[
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                    icon: Icon(isCurrentLoaded ? Icons.check_rounded : Icons.tune_rounded, size: 15),
+                    label: Text(isCurrentLoaded ? "Cargada" : "Cargar Pistas"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isCurrentLoaded ? StageTheme.surface : StageTheme.amberGold,
+                      foregroundColor: isCurrentLoaded ? StageTheme.amberGold : Colors.black,
+                      elevation: isCurrentLoaded ? 0 : 2,
+                      side: isCurrentLoaded ? const BorderSide(color: StageTheme.amberGold) : null,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      minimumSize: const Size(60, 32),
+                      textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                    onPressed: () => _loadCompletedTaskStems(filename, stems),
+                  ),
+                ],
+              ],
+            ),
           ],
         ),
       ),

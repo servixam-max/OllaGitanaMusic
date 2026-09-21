@@ -401,79 +401,153 @@ class _LyricsScreenState extends State<LyricsScreen> {
 
     return SingleChildScrollView(
       controller: _scrollController,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // Tarjeta Header de Canción con degradado
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             decoration: BoxDecoration(
-              color: StageTheme.surfaceElevated,
-              borderRadius: BorderRadius.circular(12),
+              gradient: StageTheme.cardGradient,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: StageTheme.border),
+              boxShadow: [
+                BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 2)),
+              ],
             ),
             child: Column(
               children: [
-                Text(
-                  trackName,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: StageTheme.amberGold,
-                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        gradient: StageTheme.flameGradient,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.mic_rounded, size: 16, color: Colors.white),
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        trackName,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          letterSpacing: -0.3,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 4),
                 Text(
                   artistName,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 16, color: StageTheme.textSecondary),
+                  style: const TextStyle(fontSize: 14, color: StageTheme.textSecondary, fontWeight: FontWeight.w500),
                 ),
+                if (_hasSyncedLyrics) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: StageTheme.electricGreen.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: StageTheme.electricGreen.withValues(alpha: 0.4)),
+                    ),
+                    child: const Text(
+                      "KARAOKE SINCRONIZADO LRC",
+                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: StageTheme.electricGreen, letterSpacing: 0.5),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
+
+          // Letra sincronizada o texto plano
           if (lines.isNotEmpty)
             ...lines.asMap().entries.map((entry) {
               final index = entry.key;
               final line = entry.value;
               final isActive = index == _activeLineIndex;
               _lineKeys.putIfAbsent(index, () => GlobalKey());
+
               return Padding(
                 key: _lineKeys[index],
                 padding: const EdgeInsets.symmetric(vertical: 4.0),
-                child: AnimatedDefaultTextStyle(
-                  duration: const Duration(milliseconds: 200),
-                  style: TextStyle(
-                    fontSize: _fontSize * (isActive ? 1.12 : 1.0),
-                    height: 1.6,
-                    color: _karaokeTimer != null
-                        ? (isActive ? StageTheme.amberGold : StageTheme.textMuted)
-                        : StageTheme.textPrimary,
-                    fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeOutCubic,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: isActive ? 10 : 4,
                   ),
-                  child: Text(
-                    line["text"] ?? "",
-                    textAlign: TextAlign.center,
+                  decoration: BoxDecoration(
+                    color: isActive
+                        ? StageTheme.flameOrange.withValues(alpha: 0.20)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: isActive ? StageTheme.flameOrange.withValues(alpha: 0.7) : Colors.transparent,
+                      width: 1.2,
+                    ),
+                    boxShadow: isActive ? StageTheme.glowOrange : null,
+                  ),
+                  child: AnimatedDefaultTextStyle(
+                    duration: const Duration(milliseconds: 200),
+                    style: TextStyle(
+                      fontSize: _fontSize * (isActive ? 1.15 : 1.0),
+                      height: 1.5,
+                      color: _karaokeTimer != null
+                          ? (isActive ? Colors.white : StageTheme.textMuted.withValues(alpha: 0.6))
+                          : StageTheme.textPrimary,
+                      fontWeight: isActive ? FontWeight.w800 : FontWeight.w500,
+                      letterSpacing: isActive ? 0.3 : 0,
+                    ),
+                    child: Text(
+                      line["text"] ?? "",
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                 ),
               );
             })
           else if (plainLyrics != null && plainLyrics.isNotEmpty)
-            Text(
-              plainLyrics,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: _fontSize,
-                height: 1.6,
-                color: StageTheme.textPrimary,
-                fontWeight: FontWeight.w500,
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: StageTheme.surfaceElevated,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: StageTheme.border),
+              ),
+              child: Text(
+                plainLyrics,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: _fontSize,
+                  height: 1.7,
+                  color: StageTheme.textPrimary,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             )
           else
             const Center(
-              child: Text(
-                "No hay letra disponible para esta canción.",
-                style: TextStyle(color: StageTheme.textMuted, fontSize: 16),
+              child: Padding(
+                padding: EdgeInsets.all(32.0),
+                child: Text(
+                  "No hay letra disponible para esta canción.",
+                  style: TextStyle(color: StageTheme.textMuted, fontSize: 16),
+                ),
               ),
             ),
           const SizedBox(height: 80),
