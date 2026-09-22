@@ -41,16 +41,18 @@ async def test_repertoire_workflow():
         assert created["title"] == "Entre dos aguas"
         song_id = created["id"]
 
-        # 2. Votar la canción
+        # 2. Votar la canción (nuevo sistema Sí/No)
         vote_payload = {
             "user_name": "Manuel (Cajón)",
-            "rating": 5
+            "liked": True
         }
         res_vote = await client.post(f"/api/v1/repertoire/songs/{song_id}/vote", json=vote_payload)
         assert res_vote.status_code == 200
         voted = res_vote.json()
-        assert voted["average_rating"] == 5.0
+        assert voted["yes_votes"] == 1
+        assert voted["no_votes"] == 0
         assert voted["total_votes"] == 1
+        assert voted["votes"][0]["liked"] is True
 
         # 3. Cambiar estado a "para_ensayar"
         status_payload = {"status": "para_ensayar"}

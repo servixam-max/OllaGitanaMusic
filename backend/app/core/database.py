@@ -27,6 +27,9 @@ LIGHTWEIGHT_MIGRATIONS = {
     "stem_tasks": {
         "preset": "VARCHAR(50)",
     },
+    "song_votes": {
+        "liked": "BOOLEAN",  # v1.2.2: sistema de votos Sí/No binario
+    },
 }
 
 
