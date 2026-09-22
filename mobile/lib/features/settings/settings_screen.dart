@@ -203,29 +203,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 8),
                     Text(
                       kIsWeb
-                          ? "Estás en la versión Web PWA para iOS / Navegador. Esta versión siempre se actualiza sola automáticamente desde el servidor sin necesidad de descargas."
+                          ? "Estás en la versión Web PWA para iOS / Navegador. Se actualiza sola desde el servidor; si el navegador guardó una copia antigua, aquí podrás detectarlo y recargar."
                           : "Comprueba si hay una nueva versión del APK en GitHub para descargar e instalar mejoras en los móviles de la banda.",
                       style: const TextStyle(color: StageTheme.textSecondary, fontSize: 13),
                     ),
                     const SizedBox(height: 12),
                     ElevatedButton.icon(
                       icon: const Icon(Icons.system_update),
-                      label: Text(kIsWeb ? "Comprobar Estado Web" : "Comprobar Actualizaciones"),
+                      label: Text(kIsWeb ? "Comprobar Versión Web" : "Comprobar Actualizaciones"),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: StageTheme.surfaceElevated,
                         foregroundColor: Colors.white,
                         side: const BorderSide(color: StageTheme.border),
                       ),
                       onPressed: () async {
-                        if (kIsWeb) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              backgroundColor: StageTheme.electricGreen,
-                              content: Text("¡Versión Web PWA al día (${AppUpdater.currentVersion})!"),
-                            ),
-                          );
-                          return;
-                        }
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text("Buscando actualizaciones en GitHub...")),
                         );

@@ -97,7 +97,8 @@ jobs:
       - name: Compilar Web PWA Release
         run: |
           cd mobile
-          flutter build web --release --base-href "/olla/app/"
+          VERSION=$(grep -E '^version:' pubspec.yaml | sed -E 's/version: ([0-9.]+).*/\1/')
+          flutter build web --release --base-href "/olla/app/" --dart-define=APP_VERSION=v$VERSION
 
       - name: Empaquetar Web PWA
         run: |

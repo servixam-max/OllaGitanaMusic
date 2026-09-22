@@ -3,12 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/stage_theme.dart';
+import 'reload_stub.dart' if (dart.library.js_interop) 'reload_web.dart';
 
 class AppUpdater {
-  /// Versión de la app. Se inyecta en compilación con:
-  /// flutter build apk --dart-define=APP_VERSION=v1.1.0
-  /// Por defecto usa la versión del pubspec en el momento de este cambio.
-  static const String currentVersion = String.fromEnvironment("APP_VERSION", defaultValue: "v1.2.2");
+  /// Versión de la app. El CI la inyecta en compilación con:
+  /// flutter build apk --dart-define=APP_VERSION=vX.Y.Z
+  /// El valor por defecto se mantiene al día con pubspec.yaml como red de seguridad.
+  static const String currentVersion = String.fromEnvironment("APP_VERSION", defaultValue: "v1.3.0");
   static const String repoUrl = "https://api.github.com/repos/servixam-max/OllaGitanaMusic/releases/latest";
 
   /// Comprueba semánticamente si una versión es superior a otra (ej. v1.0.12 > v1.0.9)
@@ -35,12 +36,44 @@ class AppUpdater {
   /// Comprueba en GitHub Releases si hay una versión superior a la instalada
   static Future<Map<String, dynamic>?> checkForUpdates() async {
     if (kIsWeb) {
-      return {
-        "success": true,
-        "hasUpdate": false,
-        "currentVersion": currentVersion,
-        "isWeb": true,
-      };
+      // La PWA se actualiza sola en el servidor, pero el navegador puede tener
+      // una copia en caché. Comparamos la versión publicada con la que está
+      // ejecutándose para poder avisar y ofrecer una recarga.
+      try {
+        final dio = Dio(BaseOptions(
+          connectTimeout: const Duration(seconds: 8),
+          receiveTimeout: const Duration(seconds: 10),
+          headers: {
+            "User-Agent": "OllaGitanaMusic-App/1.0",
+            "Accept": "application/vnd.github.v3+json",
+          },
+        ));
+        final response = await dio.get(repoUrl);
+        final latestTag = (response.data["tag_name"] ?? "").toString().trim();
+        if (latestTag.isNotEmpty && isNewerVersion(latestTag, currentVersion)) {
+          return {
+            "success": true,
+            "hasUpdate": true,
+            "latestVersion": latestTag,
+            "currentVersion": currentVersion,
+            "isWeb": true,
+          };
+        }
+        return {
+          "success": true,
+          "hasUpdate": false,
+          "latestVersion": latestTag,
+          "currentVersion": currentVersion,
+          "isWeb": true,
+        };
+      } catch (_) {
+        return {
+          "success": false,
+          "hasUpdate": false,
+          "currentVersion": currentVersion,
+          "isWeb": true,
+        };
+      }
     }
     try {
       final dio = Dio(BaseOptions(
@@ -170,21 +203,35 @@ class AppUpdater {
               onPressed: () => Navigator.pop(ctx),
               child: const Text("Más tarde", style: TextStyle(color: StageTheme.textSecondary)),
             ),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.download),
-              label: const Text("Descargar e Instalar"),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: StageTheme.flameOrange,
-                foregroundColor: Colors.white,
+            if (updateInfo["isWeb"] == true)
+              ElevatedButton.icon(
+                icon: const Icon(Icons.refresh),
+                label: const Text("Recargar ahora"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: StageTheme.flameOrange,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  reloadApp();
+                },
+              )
+            else
+              ElevatedButton.icon(
+                icon: const Icon(Icons.download),
+                label: const Text("Descargar e Instalar"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: StageTheme.flameOrange,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  final downloadUrl = updateInfo["downloadUrl"];
+                  if (downloadUrl != null) {
+                    launchUpdateUrl(downloadUrl);
+                  }
+                },
               ),
-              onPressed: () {
-                Navigator.pop(ctx);
-                final downloadUrl = updateInfo["downloadUrl"];
-                if (downloadUrl != null) {
-                  launchUpdateUrl(downloadUrl);
-                }
-              },
-            ),
           ],
         );
       },
