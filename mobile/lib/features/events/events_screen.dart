@@ -6,6 +6,7 @@ import '../../core/network/api_client.dart';
 import '../../core/theme/stage_theme.dart';
 import '../../core/widgets/profile_app_bar_button.dart';
 import '../../core/widgets/stage_sheet.dart';
+import 'concert_mode_screen.dart';
 
 class EventsScreen extends StatefulWidget {
   const EventsScreen({super.key});
@@ -23,6 +24,42 @@ class _EventsScreenState extends State<EventsScreen> {
   void initState() {
     super.initState();
     _loadEvents();
+  }
+
+  /// Resumen de cabecera: próximos bolos y finalizados por separado
+  String _eventsSummary() {
+    final now = DateTime.now();
+    int upcoming = 0;
+    int past = 0;
+    for (final e in _events) {
+      final dt = _parseEventDate(e["event_date"] as String?);
+      if (dt == null) continue;
+      if (dt.isAfter(now)) {
+        upcoming++;
+      } else {
+        past++;
+      }
+    }
+    final parts = <String>[];
+    if (upcoming > 0) parts.add("$upcoming próximo${upcoming != 1 ? 's' : ''}");
+    if (past > 0) parts.add("$past finalizado${past != 1 ? 's' : ''}");
+    return parts.isEmpty ? "Sin eventos" : parts.join(" · ");
+  }
+
+  /// Abre el Modo Concierto a pantalla completa (para usar en el escenario)
+  void _openConcertMode(Map<String, dynamic> event) {
+    if (((event["setlist"] as List<dynamic>?) ?? []).isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Añade canciones al setlist para usar el Modo Concierto"),
+          backgroundColor: StageTheme.amberGold,
+        ),
+      );
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => ConcertModeScreen(event: event)),
+    );
   }
 
   Future<void> _loadEvents() async {
@@ -255,6 +292,8 @@ class _EventsScreenState extends State<EventsScreen> {
 
     if (!mounted) return;
 
+    bool saving = false;
+
     showStageSheet(
       context: context,
       title: existingEvent != null ? "Editar Evento" : "Nuevo Evento",
@@ -405,24 +444,61 @@ class _EventsScreenState extends State<EventsScreen> {
                             ...selectedSetlist.asMap().entries.map((entry) {
                               final idx = entry.key;
                               final song = entry.value;
+                              final isFirst = idx == 0;
+                              final isLast = idx == selectedSetlist.length - 1;
                               return Card(
                                 margin: const EdgeInsets.symmetric(vertical: 4),
                                 child: ListTile(
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                   leading: CircleAvatar(
                                     backgroundColor: StageTheme.amberGold,
                                     foregroundColor: Colors.black,
                                     radius: 14,
                                     child: Text("${idx + 1}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                                   ),
-                                  title: Text(song["title"] ?? "", style: const TextStyle(fontWeight: FontWeight.bold)),
-                                  subtitle: Text(song["artist"] ?? ""),
-                                  trailing: IconButton(
-                                    icon: const Icon(Icons.remove_circle, color: StageTheme.alertRed, size: 20),
-                                    onPressed: () {
-                                      setModalState(() {
-                                        selectedSetlist.removeAt(idx);
-                                      });
-                                    },
+                                  title: Text(song["title"] ?? "", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                                  subtitle: Text(song["artist"] ?? "", style: const TextStyle(fontSize: 11)),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      // Reordenar: el orden del concierto lo decide la banda
+                                      IconButton(
+                                        icon: const Icon(Icons.keyboard_arrow_up, size: 20, color: StageTheme.amberGold),
+                                        tooltip: "Subir en el setlist",
+                                        visualDensity: VisualDensity.compact,
+                                        onPressed: isFirst
+                                            ? null
+                                            : () {
+                                                setModalState(() {
+                                                  final item = selectedSetlist.removeAt(idx);
+                                                  selectedSetlist.insert(idx - 1, item);
+                                                });
+                                              },
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.keyboard_arrow_down, size: 20, color: StageTheme.amberGold),
+                                        tooltip: "Bajar en el setlist",
+                                        visualDensity: VisualDensity.compact,
+                                        onPressed: isLast
+                                            ? null
+                                            : () {
+                                                setModalState(() {
+                                                  final item = selectedSetlist.removeAt(idx);
+                                                  selectedSetlist.insert(idx + 1, item);
+                                                });
+                                              },
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.remove_circle, color: StageTheme.alertRed, size: 20),
+                                        tooltip: "Quitar del setlist",
+                                        visualDensity: VisualDensity.compact,
+                                        onPressed: () {
+                                          setModalState(() {
+                                            selectedSetlist.removeAt(idx);
+                                          });
+                                        },
+                                      ),
+                                    ],
                                   ),
                                 ),
                               );
@@ -440,10 +516,6 @@ class _EventsScreenState extends State<EventsScreen> {
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
-                        child: Text(
-                          existingEvent != null ? "Guardar Cambios" : "Crear Evento",
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                        ),
                         onPressed: () async {
                           final name = nameCtrl.text.trim();
                           if (name.isEmpty) {
@@ -453,8 +525,12 @@ class _EventsScreenState extends State<EventsScreen> {
                             return;
                           }
 
+                          // Evitar doble pulsación mientras guarda
+                          setModalState(() => saving = true);
+
+                          Map<String, dynamic>? result;
                           if (existingEvent != null) {
-                            await _api.updateEvent(
+                            result = await _api.updateEvent(
                               existingEvent["id"],
                               name: name,
                               eventDate: selectedDateTime.toIso8601String(),
@@ -463,7 +539,7 @@ class _EventsScreenState extends State<EventsScreen> {
                               setlist: selectedSetlist,
                             );
                           } else {
-                            await _api.createEvent(
+                            result = await _api.createEvent(
                               name: name,
                               eventDate: selectedDateTime.toIso8601String(),
                               location: locationCtrl.text.trim(),
@@ -472,9 +548,33 @@ class _EventsScreenState extends State<EventsScreen> {
                             );
                           }
 
-                          Navigator.pop(ctx);
+                          // Si falla, NO cerrar: el músico no pierde lo que escribió
+                          if (result == null) {
+                            setModalState(() => saving = false);
+                            if (ctx.mounted) {
+                              ScaffoldMessenger.of(ctx).showSnackBar(
+                                const SnackBar(
+                                  backgroundColor: StageTheme.alertRed,
+                                  content: Text("No se pudo guardar el evento. Revisa la conexión y vuelve a intentarlo."),
+                                ),
+                              );
+                            }
+                            return;
+                          }
+
+                          if (ctx.mounted) Navigator.pop(ctx);
                           _loadEvents();
                         },
+                        child: saving
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
+                              )
+                            : Text(
+                                existingEvent != null ? "Guardar Cambios" : "Crear Evento",
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                              ),
                       ),
                     ),
                   ],
@@ -494,48 +594,105 @@ class _EventsScreenState extends State<EventsScreen> {
     Function(List<Map<String, dynamic>>) onUpdate,
   ) {
     final List<Map<String, dynamic>> tempSetlist = List.from(currentSetlist);
+    final TextEditingController filterCtrl = TextEditingController();
 
     showDialog(
       context: parentCtx,
       builder: (dlgCtx) {
         return StatefulBuilder(
           builder: (dlgCtx, setDlgState) {
+            final query = filterCtrl.text.trim().toLowerCase();
+            final filtered = query.isEmpty
+                ? repertoireSongs
+                : repertoireSongs.where((song) {
+                    final title = (song["title"] ?? "").toString().toLowerCase();
+                    final artist = (song["artist"] ?? "").toString().toLowerCase();
+                    return title.contains(query) || artist.contains(query);
+                  }).toList();
+
             return AlertDialog(
               backgroundColor: StageTheme.surface,
-              title: const Text("Añadir Temas al Setlist", style: TextStyle(fontWeight: FontWeight.bold)),
+              title: Row(
+                children: [
+                  const Expanded(
+                    child: Text("Añadir Temas al Setlist", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 20, color: StageTheme.textSecondary),
+                    tooltip: "Cerrar",
+                    onPressed: () => Navigator.pop(dlgCtx),
+                  ),
+                ],
+              ),
               content: SizedBox(
                 width: double.maxFinite,
-                height: 400,
-                child: repertoireSongs.isEmpty
-                    ? const Center(child: Text("No hay canciones disponibles en el repertorio todavía."))
-                    : ListView.builder(
-                        itemCount: repertoireSongs.length,
-                        itemBuilder: (context, index) {
-                          final song = repertoireSongs[index];
-                          final songId = song["id"];
-                          final isSelected = tempSetlist.any((s) => s["id"] == songId);
-
-                          return CheckboxListTile(
-                            activeColor: StageTheme.flameOrange,
-                            title: Text(song["title"] ?? "", style: const TextStyle(fontWeight: FontWeight.bold)),
-                            subtitle: Text(song["artist"] ?? ""),
-                            value: isSelected,
-                            onChanged: (checked) {
-                              setDlgState(() {
-                                if (checked == true) {
-                                  tempSetlist.add({
-                                    "id": songId,
-                                    "title": song["title"],
-                                    "artist": song["artist"],
-                                  });
-                                } else {
-                                  tempSetlist.removeWhere((s) => s["id"] == songId);
-                                }
-                              });
-                            },
-                          );
-                        },
+                height: 440,
+                child: Column(
+                  children: [
+                    // Buscador para encontrar un tema rápido entre todo el repertorio
+                    TextField(
+                      controller: filterCtrl,
+                      decoration: InputDecoration(
+                        hintText: "Buscar en el repertorio...",
+                        isDense: true,
+                        filled: true,
+                        fillColor: StageTheme.surfaceElevated,
+                        prefixIcon: const Icon(Icons.search, size: 20, color: StageTheme.amberGold),
+                        suffixIcon: filterCtrl.text.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear, size: 18),
+                                onPressed: () => setDlgState(() => filterCtrl.clear()),
+                              )
+                            : null,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide.none,
+                        ),
                       ),
+                      onChanged: (_) => setDlgState(() {}),
+                    ),
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: filtered.isEmpty
+                          ? const Center(
+                              child: Text(
+                                "No hay canciones que coincidan con la búsqueda.",
+                                style: TextStyle(color: StageTheme.textMuted),
+                                textAlign: TextAlign.center,
+                              ),
+                            )
+                          : ListView.builder(
+                              itemCount: filtered.length,
+                              itemBuilder: (context, index) {
+                                final song = filtered[index];
+                                final songId = song["id"];
+                                final isSelected = tempSetlist.any((s) => s["id"] == songId);
+
+                                return CheckboxListTile(
+                                  activeColor: StageTheme.flameOrange,
+                                  dense: true,
+                                  title: Text(song["title"] ?? "", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                                  subtitle: Text(song["artist"] ?? "", style: const TextStyle(fontSize: 11)),
+                                  value: isSelected,
+                                  onChanged: (checked) {
+                                    setDlgState(() {
+                                      if (checked == true) {
+                                        tempSetlist.add({
+                                          "id": songId,
+                                          "title": song["title"],
+                                          "artist": song["artist"],
+                                        });
+                                      } else {
+                                        tempSetlist.removeWhere((s) => s["id"] == songId);
+                                      }
+                                    });
+                                  },
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
               ),
               actions: [
                 TextButton(
@@ -570,7 +727,7 @@ class _EventsScreenState extends State<EventsScreen> {
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.5),
             ),
             Text(
-              "${_events.length} fecha${_events.length != 1 ? 's' : ''} programada${_events.length != 1 ? 's' : ''}",
+              _eventsSummary(),
               style: const TextStyle(fontSize: 11, color: StageTheme.textSecondary, fontWeight: FontWeight.normal),
             ),
           ],
@@ -929,6 +1086,28 @@ class _EventsScreenState extends State<EventsScreen> {
                                     ),
                                   ),
                                   const SizedBox(height: 12),
+
+                                  // Modo Concierto: pantalla completa para el escenario
+                                  if (setlist.isNotEmpty) ...[
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: ElevatedButton.icon(
+                                        icon: const Icon(Icons.stadium_rounded, size: 20),
+                                        label: const Text(
+                                          "MODO CONCIERTO",
+                                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, letterSpacing: 1),
+                                        ),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: StageTheme.flameOrange,
+                                          foregroundColor: Colors.white,
+                                          padding: const EdgeInsets.symmetric(vertical: 12),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                        ),
+                                        onPressed: () => _openConcertMode(event),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                  ],
 
                                   // Botones de acción rápida: Google Calendar & WhatsApp
                                   Row(

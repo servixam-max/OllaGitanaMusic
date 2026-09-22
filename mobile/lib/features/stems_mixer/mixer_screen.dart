@@ -10,6 +10,7 @@ import '../../core/network/api_client.dart';
 import '../../core/theme/stage_theme.dart';
 import '../../core/widgets/profile_app_bar_button.dart';
 import '../../core/widgets/stage_sheet.dart';
+import '../metronome/metronome_screen.dart';
 
 class MixerScreen extends StatefulWidget {
   const MixerScreen({super.key});
@@ -122,7 +123,22 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
 
     // 3. Verificar que la tarea realmente sigue en progreso en el servidor
     final task = await _api.getStemTask(savedTaskId);
-    if (task == null || !mounted) return;
+    if (task == null) {
+      // La tarea ya no existe en el servidor: limpiar para no reintentar en bucle
+      await prefs.remove(_prefActiveTaskKey);
+      if (mounted) {
+        setState(() {
+          _taskStatus = "";
+          _activeTaskId = null;
+          _isRecoveringTask = false;
+          _separationProgress = 0;
+          _queuePosition = null;
+        });
+      }
+      await _loadRecentTasks();
+      return;
+    }
+    if (!mounted) return;
 
     final status = task["status"] as String? ?? "";
     if (status == "completed") {
@@ -399,7 +415,23 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
         return;
       }
       final task = await _api.getStemTask(taskId);
-      if (task == null) return;
+      if (task == null) {
+        // La tarea desapareció del servidor: parar el polling y limpiar el banner
+        timer.cancel();
+        _pollTimer?.cancel();
+        _wsChannel?.dispose();
+        _wsChannel = null;
+        await _clearActiveTask();
+        if (mounted) {
+          setState(() {
+            _taskStatus = "La separación ya no está disponible en el servidor.";
+            _separationProgress = 0;
+            _queuePosition = null;
+          });
+        }
+        await _loadRecentTasks();
+        return;
+      }
 
       final status = task["status"] as String? ?? "";
       final progress = (task["progress"] as num?)?.toInt() ?? 0;
@@ -572,6 +604,20 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
       if (_currentLoadedSongName == filename) {
         await _player.dispose();
         setState(() => _currentLoadedSongName = null);
+      }
+      // Si la tarea eliminada era la activa, cancelar banner, polling y WebSocket
+      if (_activeTaskId == taskId) {
+        _pollTimer?.cancel();
+        _wsChannel?.dispose();
+        _wsChannel = null;
+        await _clearActiveTask();
+        if (mounted) {
+          setState(() {
+            _taskStatus = "";
+            _separationProgress = 0;
+            _queuePosition = null;
+          });
+        }
       }
       await _api.deleteStemTask(taskId);
       _loadRecentTasks();
@@ -1314,6 +1360,19 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
                       color: _player.speed != 1.0 ? StageTheme.amberGold : StageTheme.border,
                     ),
                   ),
+                ),
+                const SizedBox(width: 8),
+
+                // Metrónomo de ensayo
+                ActionChip(
+                  avatar: const Icon(Icons.av_timer, size: 16, color: StageTheme.electricGreen),
+                  label: const Text("Metrónomo", style: TextStyle(fontSize: 12)),
+                  backgroundColor: StageTheme.surfaceElevated,
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const MetronomeScreen()),
+                    );
+                  },
                 ),
                 const SizedBox(width: 8),
 

@@ -650,10 +650,38 @@ class ApiClient {
         "/api/v1/repertoire/songs",
         queryParameters: status != null ? {"status": status} : null,
       );
-      return response.data as List<dynamic>? ?? [];
+      final data = response.data as List<dynamic>? ?? [];
+      // Guardar en caché local (solo la lista completa, sin filtro)
+      if (status == null) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString("cached_repertoire", jsonEncode(data));
+      }
+      isServerOnlineNotifier.value = true;
+      return data;
     } catch (e) {
       print("[ApiClient] Error obteniendo canciones del repertorio: $e");
+      isServerOnlineNotifier.value = false;
+      // Sin conexión: usar la copia local para no quedarnos sin repertorio en el bolo
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final cached = prefs.getString("cached_repertoire");
+        if (cached != null) {
+          final list = jsonDecode(cached) as List<dynamic>;
+          if (status == null) return list;
+          return list.where((s) => s["status"] == status).toList();
+        }
+      } catch (_) {}
       return [];
+    }
+  }
+
+  /// Indica si la última carga del repertorio vino de la caché local (sin conexión)
+  Future<bool> repertoireIsFromCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString("cached_repertoire") != null && !isServerOnlineNotifier.value;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -683,6 +711,18 @@ class ApiClient {
       return response.data;
     } catch (_) {
       return null;
+    }
+  }
+
+  Future<bool> updateSongNotes(int songId, String notes) async {
+    try {
+      await _dio.patch(
+        "/api/v1/repertoire/songs/$songId/notes",
+        data: {"notes": notes},
+      );
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 

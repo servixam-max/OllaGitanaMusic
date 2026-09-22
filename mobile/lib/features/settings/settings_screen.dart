@@ -469,6 +469,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         side: const BorderSide(color: StageTheme.alertRed),
                       ),
                       onPressed: () async {
+                        final confirmed = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            backgroundColor: StageTheme.surface,
+                            title: const Text("Liberar espacio"),
+                            content: const Text(
+                              "Se borrarán las pistas descargadas en este teléfono. "
+                              "Podrás volver a cargarlas desde el servidor cuando quieras, "
+                              "pero hasta entonces no podrás ensayar sin conexión.",
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx, false),
+                                child: const Text("Cancelar", style: TextStyle(color: StageTheme.textSecondary)),
+                              ),
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: StageTheme.alertRed,
+                                  foregroundColor: Colors.white,
+                                ),
+                                onPressed: () => Navigator.pop(ctx, true),
+                                child: const Text("Liberar"),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (confirmed != true) return;
                         await StemCache.instance.clear();
                         await _loadCacheSize();
                         if (mounted) {

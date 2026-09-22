@@ -49,20 +49,45 @@ def format_event(event: BandEvent) -> dict:
 @router.get("")
 async def list_events(db: AsyncSession = Depends(get_db)):
     """
-    Lista todos los eventos de la banda ordenados por fecha de celebración (próximos primero).
+    Lista todos los eventos de la banda.
+
+    Ordena por proximidad real: primero el próximo bolo (el más cercano en el
+    futuro) y después el resto por fecha ascendente, con los ya celebrados al
+    final. Así el evento de hoy siempre aparece arriba sin hacer scroll.
     """
-    query = select(BandEvent).order_by(BandEvent.event_date.asc())
+    from datetime import datetime, timezone
+
+    query = select(BandEvent)
     result = await db.execute(query)
     events = result.scalars().all()
 
-    # Los eventos sin fecha válida van al final; el resto por proximidad real
-    def sort_key(event: BandEvent):
-        try:
-            return (0, event.event_date or "")
-        except Exception:
-            return (1, "")
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
 
-    return [format_event(e) for e in events]
+    def parse_date(event: BandEvent) -> datetime:
+        raw = (event.event_date or "").strip()
+        if not raw:
+            return datetime.max
+        try:
+            # Normalizar fechas ISO con o sin zona horaria
+            normalized = raw.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(normalized)
+            if dt.tzinfo is not None:
+                dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+            return dt
+        except Exception:
+            return datetime.max
+
+    def sort_key(event: BandEvent):
+        dt = parse_date(event)
+        # 0 = futuros (más cercano primero), 1 = pasados (más reciente primero), 2 = sin fecha
+        if dt == datetime.max:
+            return (2, 0.0)
+        if dt >= now:
+            return (0, (dt - now).total_seconds())
+        return (1, (now - dt).total_seconds())
+
+    ordered = sorted(events, key=sort_key)
+    return [format_event(e) for e in ordered]
 
 @router.post("")
 async def create_event(

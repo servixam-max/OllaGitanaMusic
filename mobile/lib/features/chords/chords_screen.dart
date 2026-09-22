@@ -7,6 +7,7 @@ import '../../core/network/api_client.dart';
 import '../../core/theme/stage_theme.dart';
 import '../../core/widgets/profile_app_bar_button.dart';
 import '../../core/widgets/stage_sheet.dart';
+import '../metronome/metronome_screen.dart';
 
 // Modelo de acordes de guitarra para diagramas de mástil
 class ChordDiagramData {
@@ -810,9 +811,34 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
                           children: [
                             const Text("Tempo:", style: TextStyle(color: StageTheme.textSecondary, fontSize: 13)),
                             const SizedBox(height: 4),
-                            Text(
-                              "${_analysisResult!["tempo"]} BPM",
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: StageTheme.electricGreen),
+                            InkWell(
+                              onTap: () {
+                                // Abrir metrónomo con el tempo ya detectado de esta canción
+                                final detected = (_analysisResult!["tempo"] as num?)?.round() ?? 100;
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(builder: (_) => MetronomeScreen(initialBpm: detected)),
+                                );
+                              },
+                              borderRadius: BorderRadius.circular(10),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: StageTheme.electricGreen.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: StageTheme.electricGreen.withValues(alpha: 0.5)),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.av_timer, size: 14, color: StageTheme.electricGreen),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      "${_analysisResult!["tempo"]} BPM",
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: StageTheme.electricGreen),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
                           ],
                         ),

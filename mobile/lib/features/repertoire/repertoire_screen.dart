@@ -169,12 +169,30 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
       return;
     }
     final success = await _api.voteSongLike(songId, liked);
-    if (success) _loadSongs(silent: true);
+    if (success) {
+      _loadSongs(silent: true);
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: StageTheme.alertRed,
+          content: Text("No se pudo registrar tu voto. Comprueba la conexión."),
+        ),
+      );
+    }
   }
 
   Future<void> _changeStatus(int songId, String newStatus) async {
     final success = await _api.updateSongStatus(songId, newStatus);
-    if (success) _loadSongs(silent: true);
+    if (success) {
+      _loadSongs(silent: true);
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: StageTheme.alertRed,
+          content: Text("No se pudo cambiar el estado. Comprueba la conexión."),
+        ),
+      );
+    }
   }
 
   Future<void> _confirmDeleteSong(int songId, String title) async {
@@ -1355,6 +1373,106 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
     );
   }
 
+  /// Notas compartidas del tema: cualquier músico puede verlas o editarlas.
+  /// Sirven para no perder indicaciones ("bajar medio tono", "aquí entra el solo").
+  Widget _buildNotesSection(dynamic song, VoidCallback onChanged) {
+    final notes = (song["notes"] as String?) ?? "";
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: StageTheme.surfaceElevated,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: StageTheme.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.sticky_note_2_outlined, size: 18, color: StageTheme.amberGold),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  "Notas del tema",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+              ),
+              TextButton.icon(
+                icon: const Icon(Icons.edit, size: 16),
+                label: Text(notes.isEmpty ? "Añadir" : "Editar", style: const TextStyle(fontSize: 12)),
+                style: TextButton.styleFrom(foregroundColor: StageTheme.amberGold),
+                onPressed: () => _editSongNotes(song, onChanged),
+              ),
+            ],
+          ),
+          if (notes.isNotEmpty)
+            Text(
+              notes,
+              style: const TextStyle(fontSize: 13, color: StageTheme.textPrimary, height: 1.4),
+            )
+          else
+            const Text(
+              "Sin notas todavía. Añade tonalidad, arreglos o entradas para el directo.",
+              style: TextStyle(fontSize: 12, color: StageTheme.textMuted),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _editSongNotes(dynamic song, VoidCallback onChanged) async {
+    final controller = TextEditingController(text: (song["notes"] as String?) ?? "");
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: StageTheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: const BorderSide(color: StageTheme.border),
+        ),
+        title: const Text("Notas del tema"),
+        content: TextField(
+          controller: controller,
+          maxLines: 4,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: "Ej: Bajar medio tono, aquí entra el solo, cuenta 4 antes del estribillo...",
+            filled: true,
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Cancelar", style: TextStyle(color: StageTheme.textSecondary)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: StageTheme.flameOrange, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("Guardar"),
+          ),
+        ],
+      ),
+    );
+
+    if (result == true) {
+      final ok = await _api.updateSongNotes(song["id"] as int, controller.text.trim());
+      if (ok) {
+        song["notes"] = controller.text.trim();
+        onChanged();
+        _loadSongs(silent: true);
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: StageTheme.alertRed,
+            content: Text("No se pudieron guardar las notas. Comprueba la conexión."),
+          ),
+        );
+      }
+    }
+  }
+
   Widget _buildStatusMenu(dynamic song) {
     final statusColor = _getStatusColor(song["status"] as String? ?? "");
     return PopupMenuButton<String>(
@@ -1470,6 +1588,10 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                   // Sección de votación Sí/No
                   _buildVoteSection(song),
                   const SizedBox(height: 16),
+
+                  // Notas del tema: tonalidad, arreglos, entradas, avisos
+                  _buildNotesSection(song, () => setSheetState(() {})),
+                  const SizedBox(height: 12),
 
                   // Acciones: cerrar o eliminar
                   Row(

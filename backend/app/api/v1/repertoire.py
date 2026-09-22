@@ -31,6 +31,9 @@ class SongCreateSchema(BaseModel):
 class StatusUpdateSchema(BaseModel):
     status: str = Field(..., pattern="^(propuesta|para_ensayar|en_repertorio|descartada)$")
 
+class NotesUpdateSchema(BaseModel):
+    notes: Optional[str] = Field(None, description="Notas del tema: arreglos, tonalidad, entradas...")
+
 class VoteCreateSchema(BaseModel):
     user_name: str = Field(..., examples=["Carlos (Guitarra)"])
     liked: bool = Field(..., description="True = me gusta (Sí), False = no me gusta (No)")
@@ -219,6 +222,30 @@ async def update_song_status(
 
     data = format_song(song)
     await ws_manager.broadcast_repertoire_event("status_changed", data)
+    return data
+
+@router.patch("/songs/{song_id}/notes")
+async def update_song_notes(
+    song_id: int,
+    payload: NotesUpdateSchema,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_api_token),
+):
+    """
+    Guarda las notas de un tema (tonalidad, arreglos, entradas, avisos para el directo).
+    Cualquier miembro de la banda puede añadirlas o corregirlas.
+    """
+    song = await db.get(SongProposal, song_id, options=[selectinload(SongProposal.votes)])
+    if not song:
+        raise HTTPException(status_code=404, detail="Canción no encontrada")
+
+    clean = (payload.notes or "").strip()
+    song.notes = clean if clean else None
+    await db.commit()
+    await db.refresh(song)
+
+    data = format_song(song)
+    await ws_manager.broadcast_repertoire_event("notes_updated", data)
     return data
 
 @router.post("/songs/{song_id}/vote")
