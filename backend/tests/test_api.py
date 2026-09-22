@@ -159,14 +159,23 @@ async def test_stem_task_retry_not_found():
 async def test_events_ordered_by_event_date():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        await client.post("/api/v1/events", json={
-            "name": "Evento Tardío", "event_date": "2099-12-31T23:00:00"
+        # Crear eventos temporales de prueba
+        res_late = await client.post("/api/v1/events", json={
+            "name": "Evento Tardío QA", "event_date": "2099-12-31T23:00:00"
         })
-        await client.post("/api/v1/events", json={
-            "name": "Evento Temprano", "event_date": "2030-01-01T20:00:00"
+        res_early = await client.post("/api/v1/events", json={
+            "name": "Evento Temprano QA", "event_date": "2030-01-01T20:00:00"
         })
-        res = await client.get("/api/v1/events")
-        assert res.status_code == 200
-        events = res.json()
-        dates = [e["event_date"] for e in events]
-        assert dates == sorted(dates)
+        late_id = res_late.json()["id"]
+        early_id = res_early.json()["id"]
+
+        try:
+            res = await client.get("/api/v1/events")
+            assert res.status_code == 200
+            events = res.json()
+            dates = [e["event_date"] for e in events]
+            assert dates == sorted(dates)
+        finally:
+            # Limpiar SIEMPRE los eventos de prueba para no ensuciar datos reales
+            await client.delete(f"/api/v1/events/{late_id}")
+            await client.delete(f"/api/v1/events/{early_id}")
