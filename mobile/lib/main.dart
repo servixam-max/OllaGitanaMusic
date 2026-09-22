@@ -59,7 +59,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     await Future.delayed(const Duration(milliseconds: 700));
     if (!mounted) return;
     if (!ApiClient().isUserIdentified) {
-      await showMemberSelectorDialog(context, barrierDismissible: false);
+      // Se puede cerrar sin elegir (el botón X): nadie queda atrapado en el selector.
+      // Si se cierra sin elegir, se puede identificar más tarde desde el avatar.
+      await showMemberSelectorDialog(context, barrierDismissible: true);
       if (mounted) setState(() {});
     }
   }

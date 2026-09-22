@@ -9,6 +9,7 @@ import '../../core/audio/multitrack_player.dart';
 import '../../core/network/api_client.dart';
 import '../../core/theme/stage_theme.dart';
 import '../../core/widgets/profile_app_bar_button.dart';
+import '../../core/widgets/stage_sheet.dart';
 
 class MixerScreen extends StatefulWidget {
   const MixerScreen({super.key});
@@ -152,18 +153,15 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _pickPreset() async {
-    final chosen = await showModalBottomSheet<String>(
+    final chosen = await showStageSheet<String>(
       context: context,
-      backgroundColor: StageTheme.surface,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(16),
+      title: "Calidad de Separación",
+      builder: (ctx, _) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text("Calidad de Separación", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 4),
             const Text(
               "Más calidad implica más tiempo de proceso. Se puede cambiar para cada canción.",
               style: TextStyle(color: StageTheme.textSecondary, fontSize: 12),
@@ -1588,48 +1586,30 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
   }
 
   void _showRecentTasksModal() {
-    showModalBottomSheet(
+    showStageSheet(
       context: context,
-      backgroundColor: StageTheme.surface,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) {
-        return DraggableScrollableSheet(
-          initialChildSize: 0.65,
-          minChildSize: 0.4,
-          maxChildSize: 0.92,
-          expand: false,
-          builder: (_, scrollCtrl) => Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
+      title: "Canciones Procesadas",
+      draggable: true,
+      initialChildSize: 0.7,
+      builder: (ctx, scrollCtrl) => Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: SizedBox(
+              height: MediaQuery.of(ctx).size.height * 0.65,
+              child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 12),
-                    decoration: BoxDecoration(
-                      color: StageTheme.border,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: IconButton(
+                    icon: const Icon(Icons.refresh, color: StageTheme.amberGold),
+                    tooltip: "Refrescar lista",
+                    onPressed: () async {
+                      await _loadRecentTasks();
+                      if (ctx.mounted) Navigator.pop(ctx);
+                      _showRecentTasksModal();
+                    },
                   ),
                 ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text("Canciones Procesadas", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    IconButton(
-                      icon: const Icon(Icons.refresh, color: StageTheme.amberGold),
-                      onPressed: () async {
-                        await _loadRecentTasks();
-                        if (ctx.mounted) Navigator.pop(ctx);
-                        _showRecentTasksModal();
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
                 Expanded(
                   child: _recentTasks.isEmpty
                       ? const Center(
@@ -1706,10 +1686,9 @@ class _MixerScreenState extends State<MixerScreen> with WidgetsBindingObserver {
                         ),
                 ),
               ],
+              ),
             ),
           ),
         );
-      },
-    );
   }
 }

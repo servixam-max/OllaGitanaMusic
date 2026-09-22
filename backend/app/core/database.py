@@ -50,6 +50,33 @@ async def _apply_lightweight_migrations(conn):
         except Exception as e:
             print(f"[DB] Aviso en migración de {table}: {e}")
 
+    # v1.2.3: en bases de datos antiguas 'song_votes.rating' era NOT NULL y rompía
+    # el sistema de votos Sí/No (que usa la columna 'liked'). Lo hacemos opcional.
+    try:
+        result = await conn.execute(text("PRAGMA table_info(song_votes)"))
+        columns_info = result.fetchall()
+        rating_col = next((row for row in columns_info if row[1] == "rating"), None)
+        if rating_col and rating_col[3] == 1:  # notnull = 1
+            await conn.execute(text(
+                "CREATE TABLE IF NOT EXISTS song_votes_migrated ("
+                "id INTEGER PRIMARY KEY, "
+                "song_id INTEGER NOT NULL, "
+                "user_name VARCHAR(100) NOT NULL, "
+                "liked BOOLEAN, "
+                "rating INTEGER, "
+                "created_at DATETIME, "
+                "FOREIGN KEY(song_id) REFERENCES song_proposals (id) ON DELETE CASCADE)"
+            ))
+            await conn.execute(text(
+                "INSERT INTO song_votes_migrated (id, song_id, user_name, liked, rating, created_at) "
+                "SELECT id, song_id, user_name, liked, rating, created_at FROM song_votes"
+            ))
+            await conn.execute(text("DROP TABLE song_votes"))
+            await conn.execute(text("ALTER TABLE song_votes_migrated RENAME TO song_votes"))
+            print("[DB] song_votes.rating ahora es opcional (migración votos Sí/No)")
+    except Exception as e:
+        print(f"[DB] Aviso migrando song_votes: {e}")
+
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:

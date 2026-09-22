@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/network/api_client.dart';
 import '../../core/theme/stage_theme.dart';
 import '../../core/widgets/profile_app_bar_button.dart';
+import '../../core/widgets/stage_sheet.dart';
 
 class EventsScreen extends StatefulWidget {
   const EventsScreen({super.key});
@@ -254,12 +255,10 @@ class _EventsScreenState extends State<EventsScreen> {
 
     if (!mounted) return;
 
-    showModalBottomSheet(
+    showStageSheet(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: StageTheme.surface,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) {
+      title: existingEvent != null ? "Editar Evento" : "Nuevo Evento",
+      builder: (ctx, _) {
         return StatefulBuilder(
           builder: (ctx, setModalState) {
             final dateDisplay = DateFormat("dd/MM/yyyy HH:mm").format(selectedDateTime);
@@ -294,28 +293,14 @@ class _EventsScreenState extends State<EventsScreen> {
               padding: EdgeInsets.only(
                 left: 16,
                 right: 16,
-                top: 20,
                 bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
               ),
               child: SizedBox(
-                height: 600,
+                height: MediaQuery.of(ctx).size.height * 0.7,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          existingEvent != null ? "Editar Evento" : "Nuevo Evento / Bolo",
-                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.close),
-                          onPressed: () => Navigator.pop(ctx),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 4),
                     Expanded(
                       child: ListView(
                         children: [

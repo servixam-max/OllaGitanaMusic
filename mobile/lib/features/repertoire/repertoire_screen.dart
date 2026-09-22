@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/network/api_client.dart';
 import '../../core/theme/stage_theme.dart';
 import '../../core/widgets/profile_app_bar_button.dart';
+import '../../core/widgets/stage_sheet.dart';
 
 enum _ViewMode { compact, cards, ultraCompact }
 
@@ -1392,31 +1393,17 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
 
   /// Bottom sheet con detalle completo de la canción (accesible desde la vista compacta)
   void _showSongDetailSheet(dynamic song) {
-    showModalBottomSheet(
+    showStageSheet(
       context: context,
-      backgroundColor: StageTheme.surface,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) {
+      title: "Detalle del tema",
+      builder: (ctx, _) {
         return StatefulBuilder(
           builder: (ctx, setSheetState) {
-            return Padding(
-              padding: const EdgeInsets.all(20),
+            return SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Pill handle
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      margin: const EdgeInsets.only(bottom: 16),
-                      decoration: BoxDecoration(
-                        color: StageTheme.border,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ),
-                  ),
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1484,14 +1471,24 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                   _buildVoteSection(song),
                   const SizedBox(height: 16),
 
-                  // Botón eliminar
-                  TextButton.icon(
-                    icon: const Icon(Icons.delete_outline, color: StageTheme.alertRed),
-                    label: const Text("Eliminar de la lista", style: TextStyle(color: StageTheme.alertRed)),
-                    onPressed: () {
-                      Navigator.pop(ctx);
-                      _confirmDeleteSong(song["id"] as int, song["title"] as String? ?? "Canción");
-                    },
+                  // Acciones: cerrar o eliminar
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      TextButton.icon(
+                        icon: const Icon(Icons.close, color: StageTheme.textSecondary),
+                        label: const Text("Cerrar", style: TextStyle(color: StageTheme.textSecondary)),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                      TextButton.icon(
+                        icon: const Icon(Icons.delete_outline, color: StageTheme.alertRed),
+                        label: const Text("Eliminar", style: TextStyle(color: StageTheme.alertRed)),
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          _confirmDeleteSong(song["id"] as int, song["title"] as String? ?? "Canción");
+                        },
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -1509,12 +1506,10 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
     bool searching = false;
     String? playingUrl;
 
-    showModalBottomSheet(
+    showStageSheet(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: StageTheme.surface,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) {
+      title: "Proponer Tema",
+      builder: (ctx, _) {
         return StatefulBuilder(
           builder: (ctx, setModalState) {
             dialogPlayer.playerStateStream.listen((state) {
@@ -1557,38 +1552,16 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
               }
             }
 
-            return DraggableScrollableSheet(
-              initialChildSize: 0.7,
-              minChildSize: 0.4,
-              maxChildSize: 0.95,
-              expand: false,
-              builder: (_, scrollCtrl) => Padding(
+            return Padding(
                 padding: EdgeInsets.only(
                   left: 16,
                   right: 16,
-                  top: 20,
                   bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Pill handle
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 4,
-                        margin: const EdgeInsets.only(bottom: 12),
-                        decoration: BoxDecoration(
-                          color: StageTheme.border,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                      ),
-                    ),
-                    const Text(
-                      "Proponer Tema para Olla Gitana",
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 4),
                     Row(
                       children: [
                         Expanded(
@@ -1627,7 +1600,6 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                               ),
                             )
                           : ListView.builder(
-                              controller: scrollCtrl,
                               itemCount: spotifyResults.length,
                               itemBuilder: (ctx, index) {
                                 final track = spotifyResults[index];
@@ -1679,8 +1651,7 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                     ),
                   ],
                 ),
-              ),
-            );
+              );
           },
         );
       },

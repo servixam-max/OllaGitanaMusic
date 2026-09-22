@@ -101,8 +101,12 @@ async def get_songs(
     result = await db.execute(query)
     songs = result.scalars().all()
     
-    # Ordenar por valoración media descendente
-    sorted_songs = sorted(songs, key=lambda s: (s.average_rating, s.total_votes), reverse=True)
+    # Ordenar por consenso: más votos SÍ y menos votos NO primero
+    sorted_songs = sorted(
+        songs,
+        key=lambda s: (s.yes_votes - s.no_votes, s.yes_votes),
+        reverse=True,
+    )
     return [format_song(s) for s in sorted_songs]
 
 @router.get("/songs/{song_id}/preview")
@@ -241,8 +245,16 @@ async def vote_song(
 
     if vote:
         vote.liked = payload.liked
+        # Compatibilidad con bases de datos antiguas donde 'rating' era NOT NULL
+        vote.rating = 5 if payload.liked else 1
     else:
-        vote = SongVote(song_id=song_id, user_name=payload.user_name, liked=payload.liked)
+        vote = SongVote(
+            song_id=song_id,
+            user_name=payload.user_name,
+            liked=payload.liked,
+            # Compatibilidad con bases de datos antiguas donde 'rating' era NOT NULL
+            rating=5 if payload.liked else 1,
+        )
         db.add(vote)
 
     await db.commit()

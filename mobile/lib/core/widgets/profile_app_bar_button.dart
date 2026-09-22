@@ -19,21 +19,26 @@ class ProfileAppBarButton extends StatelessWidget {
     final action = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: StageTheme.surface,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(height: 8),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: StageTheme.border,
-                borderRadius: BorderRadius.circular(4),
-              ),
+            Row(
+              children: [
+                const SizedBox(width: 20),
+                const Expanded(
+                  child: Text("Mi perfil", style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: StageTheme.textSecondary),
+                  tooltip: "Cerrar",
+                  onPressed: () => Navigator.pop(ctx),
+                ),
+                const SizedBox(width: 4),
+              ],
             ),
-            const SizedBox(height: 12),
             ListTile(
               leading: const Icon(Icons.switch_account, color: StageTheme.amberGold),
               title: const Text("Cambiar músico activo", style: TextStyle(fontWeight: FontWeight.bold)),

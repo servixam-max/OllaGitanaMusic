@@ -153,37 +153,159 @@ class ApiClient {
         options: Options(headers: {"User-Agent": "OllaGitanaMusic/1.0"}),
       );
       if (resp.statusCode == 200) {
-        return (resp.data as List<dynamic>).map((item) {
+        final results = (resp.data as List<dynamic>).map((item) {
+          final lines = _parseLrc(item["syncedLyrics"]);
           return {
             "id": item["id"],
-            "track_name": item["trackName"],
-            "artist_name": item["artistName"],
+            "track_name": item["trackName"] ?? "Sin título",
+            "artist_name": item["artistName"] ?? "Desconocido",
             "album_name": item["albumName"],
             "duration": item["duration"],
             "plain_lyrics": item["plainLyrics"],
             "synced_lyrics": item["syncedLyrics"],
-            "lines": _parseLrc(item["syncedLyrics"]),
+            "lines": lines,
+            "has_synced": lines.isNotEmpty,
           };
         }).toList();
+        // Priorizar las que tienen letra sincronizada
+        results.sort((a, b) {
+          final aSync = (a["has_synced"] == true) ? 1 : 0;
+          final bSync = (b["has_synced"] == true) ? 1 : 0;
+          return bSync.compareTo(aSync);
+        });
+        return results;
       }
     } catch (_) {}
 
     return [];
   }
 
+  /// Obtiene la letra exacta de una canción por título y artista.
+  /// Es la vía que garantiza la versión sincronizada (karaoke) cuando existe.
+  Future<Map<String, dynamic>?> getLyrics(String trackName, String artistName) async {
+    // 1. A través del backend (tiene fallback flexible a búsqueda)
+    try {
+      final response = await _dio.get(
+        "/api/v1/lyrics/get",
+        queryParameters: {"track_name": trackName, "artist_name": artistName},
+        options: Options(receiveTimeout: const Duration(seconds: 20)),
+      );
+      if (response.statusCode == 200 && response.data is Map) {
+        final data = Map<String, dynamic>.from(response.data);
+        final lines = (data["lines"] as List<dynamic>?) ?? [];
+        data["has_synced"] = lines.isNotEmpty;
+        return data;
+      }
+    } catch (_) {}
+
+    // 2. Fallback directo desde el móvil: intento exacto y, si falla, búsqueda
+    try {
+      final resp = await _publicDio.get(
+        "https://lrclib.net/api/get",
+        queryParameters: {"track_name": trackName, "artist_name": artistName},
+        options: Options(headers: {"User-Agent": "OllaGitanaMusic/1.0"}),
+      );
+      if (resp.statusCode == 200) {
+        final item = Map<String, dynamic>.from(resp.data);
+        final lines = _parseLrc(item["syncedLyrics"]);
+        return {
+          "id": item["id"],
+          "track_name": item["trackName"] ?? trackName,
+          "artist_name": item["artistName"] ?? artistName,
+          "album_name": item["albumName"],
+          "duration": item["duration"],
+          "plain_lyrics": item["plainLyrics"],
+          "synced_lyrics": item["syncedLyrics"],
+          "lines": lines,
+          "has_synced": lines.isNotEmpty,
+        };
+      }
+
+      // Búsqueda flexible: elegir la mejor versión con LRC
+      final searchResp = await _publicDio.get(
+        "https://lrclib.net/api/search",
+        queryParameters: {"q": "$trackName $artistName"},
+        options: Options(headers: {"User-Agent": "OllaGitanaMusic/1.0"}),
+      );
+      if (searchResp.statusCode == 200) {
+        final list = (searchResp.data as List<dynamic>);
+        if (list.isNotEmpty) {
+          final trackLower = trackName.toLowerCase();
+          final withSynced = list.where((i) => i["syncedLyrics"] != null).toList();
+          final pool = withSynced.isNotEmpty ? withSynced : list;
+          final best = pool.firstWhere(
+            (i) => (i["trackName"] ?? "").toString().toLowerCase().contains(trackLower),
+            orElse: () => pool.first,
+          );
+          final lines = _parseLrc(best["syncedLyrics"]);
+          return {
+            "id": best["id"],
+            "track_name": best["trackName"] ?? trackName,
+            "artist_name": best["artistName"] ?? artistName,
+            "album_name": best["albumName"],
+            "duration": best["duration"],
+            "plain_lyrics": best["plainLyrics"],
+            "synced_lyrics": best["syncedLyrics"],
+            "lines": lines,
+            "has_synced": lines.isNotEmpty,
+          };
+        }
+      }
+    } catch (_) {}
+
+    return null;
+  }
+
+  /// Parser LRC tolerante: soporta [mm:ss.xx], [mm:ss], varias marcas por línea,
+  /// etiquetas de metadatos y offset global.
   List<Map<String, dynamic>> _parseLrc(String? lrc) {
-    if (lrc == null) return [];
+    if (lrc == null || lrc.trim().isEmpty) return [];
+    const metaTags = {
+      "ar", "ti", "al", "by", "offset", "re", "ve", "length",
+      "au", "ly", "la", "encoding", "tool", "id", "artist", "title",
+    };
+    final timePattern = RegExp(r"\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]");
+
+    // Offset global [offset:±ms]
+    int offsetMs = 0;
+    final offsetMatch = RegExp(r"\[offset:\s*([+-]?\d+)\s*\]", caseSensitive: false).firstMatch(lrc);
+    if (offsetMatch != null) {
+      offsetMs = int.tryParse(offsetMatch.group(1)!) ?? 0;
+    }
+
     final List<Map<String, dynamic>> parsed = [];
-    final pattern = RegExp(r"\[(\d+):(\d+(?:\.\d+)?)\](.*)");
-    for (final line in lrc.split('\n')) {
-      final match = pattern.firstMatch(line.trim());
-      if (match != null) {
-        final minutes = int.parse(match.group(1)!);
-        final seconds = double.parse(match.group(2)!);
-        final timeMs = ((minutes * 60 + seconds) * 1000).toInt();
-        parsed.add({"time_ms": timeMs, "text": match.group(3)?.trim() ?? ""});
+    for (final rawLine in lrc.split('\n')) {
+      final line = rawLine.trim();
+      if (line.isEmpty) continue;
+
+      // Ignorar líneas que son solo metadatos
+      final metaMatch = RegExp(r"^\[([a-zA-Z#]+):(.*)\]$").firstMatch(line);
+      if (metaMatch != null && metaTags.contains(metaMatch.group(1)!.toLowerCase())) {
+        continue;
+      }
+
+      final marks = timePattern.allMatches(line).toList();
+      if (marks.isEmpty) continue;
+
+      final text = line.substring(marks.last.end).trim();
+      for (final mark in marks) {
+        final minutes = int.parse(mark.group(1)!);
+        final seconds = int.parse(mark.group(2)!);
+        final fraction = mark.group(3) ?? "0";
+        int millis;
+        if (fraction.length == 1) {
+          millis = int.parse(fraction) * 100;
+        } else if (fraction.length == 2) {
+          millis = int.parse(fraction) * 10;
+        } else {
+          millis = int.parse(fraction.substring(0, 3));
+        }
+        var timeMs = minutes * 60 * 1000 + seconds * 1000 + millis + offsetMs;
+        if (timeMs < 0) timeMs = 0;
+        parsed.add({"time_ms": timeMs, "text": text});
       }
     }
+
     parsed.sort((a, b) => (a["time_ms"] as int).compareTo(b["time_ms"] as int));
     return parsed;
   }

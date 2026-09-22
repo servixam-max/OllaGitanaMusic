@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/network/api_client.dart';
 import '../../core/theme/stage_theme.dart';
 import '../../core/widgets/profile_app_bar_button.dart';
+import '../../core/widgets/stage_sheet.dart';
 
 // Modelo de acordes de guitarra para diagramas de mástil
 class ChordDiagramData {
@@ -527,16 +528,14 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
       return chord;
     }
 
-    showModalBottomSheet(
+    showStageSheet(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: StageTheme.surface,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) {
+      title: "Acordes y Tablatura",
+      builder: (ctx, _) {
         return StatefulBuilder(
           builder: (ctx, setSheetState) {
-            return Padding(
-              padding: const EdgeInsets.all(20.0),
+            return SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -644,6 +643,14 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
                     ),
                   ),
                   const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton.icon(
+                      icon: const Icon(Icons.close, size: 18, color: StageTheme.textSecondary),
+                      label: const Text("Volver", style: TextStyle(color: StageTheme.textSecondary)),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ),
                 ],
               ),
             );

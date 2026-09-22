@@ -93,18 +93,32 @@ class _MemberSelectorDialogState extends State<_MemberSelectorDialog> {
           ),
           title: Column(
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: const [
-                  Icon(Icons.local_fire_department, color: StageTheme.flameOrange, size: 28),
-                  SizedBox(width: 8),
-                  Text(
-                    "Olla Gitana",
-                    style: TextStyle(
-                      color: StageTheme.amberGold,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.5,
-                      fontSize: 18,
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.local_fire_department, color: StageTheme.flameOrange, size: 28),
+                      SizedBox(width: 8),
+                      Text(
+                        "Olla Gitana",
+                        style: TextStyle(
+                          color: StageTheme.amberGold,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.5,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ],
+                  ),
+                  // Siempre se puede salir del selector (importante: nadie debe quedar atrapado)
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: IconButton(
+                      icon: const Icon(Icons.close, color: StageTheme.textSecondary, size: 20),
+                      tooltip: "Cerrar",
+                      onPressed: () => Navigator.of(context).maybePop(),
                     ),
                   ),
                 ],
