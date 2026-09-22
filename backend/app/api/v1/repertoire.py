@@ -33,7 +33,7 @@ class StatusUpdateSchema(BaseModel):
 
 class VoteCreateSchema(BaseModel):
     user_name: str = Field(..., examples=["Carlos (Guitarra)"])
-    rating: int = Field(..., ge=1, le=5)
+    liked: bool = Field(..., description="True = me gusta (Sí), False = no me gusta (No)")
 
 def format_song(song: SongProposal) -> dict:
     preview = f"/api/v1/repertoire/songs/{song.id}/preview" if (song.preview_url or song.spotify_id) else None
@@ -48,10 +48,13 @@ def format_song(song: SongProposal) -> dict:
         "status": song.status,
         "proposed_by": song.proposed_by,
         "notes": song.notes,
-        "average_rating": round(song.average_rating, 2),
+        "yes_votes": song.yes_votes,
+        "no_votes": song.no_votes,
         "total_votes": song.total_votes,
+        # Retrocompatibilidad
+        "average_rating": 0.0,
         "votes": [
-            {"id": v.id, "user_name": v.user_name, "rating": v.rating}
+            {"id": v.id, "user_name": v.user_name, "liked": v.liked}
             for v in song.votes
         ],
         "created_at": song.created_at.isoformat()
@@ -222,7 +225,8 @@ async def vote_song(
     _: None = Depends(require_api_token),
 ):
     """
-    Emite o actualiza el voto de un integrante para una canción (1 a 5 estrellas).
+    Registra o actualiza el voto (Sí/No) de un integrante para una canción.
+    Cada músico puede votar una sola vez; votar de nuevo actualiza su voto previo.
     """
     song = await db.get(SongProposal, song_id, options=[selectinload(SongProposal.votes)])
     if not song:
@@ -236,9 +240,9 @@ async def vote_song(
             break
 
     if vote:
-        vote.rating = payload.rating
+        vote.liked = payload.liked
     else:
-        vote = SongVote(song_id=song_id, user_name=payload.user_name, rating=payload.rating)
+        vote = SongVote(song_id=song_id, user_name=payload.user_name, liked=payload.liked)
         db.add(vote)
 
     await db.commit()

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from typing import List, Optional
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Float
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Float, Boolean
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
@@ -22,14 +22,23 @@ class SongProposal(Base):
     votes = relationship("SongVote", back_populates="song", cascade="all, delete-orphan", lazy="selectin")
 
     @property
-    def average_rating(self) -> float:
-        if not self.votes:
-            return 0.0
-        return sum(v.rating for v in self.votes) / len(self.votes)
+    def yes_votes(self) -> int:
+        """Número de músicos que han votado SÍ (les gusta)."""
+        return sum(1 for v in self.votes if v.liked is True)
+
+    @property
+    def no_votes(self) -> int:
+        """Número de músicos que han votado NO (no les gusta)."""
+        return sum(1 for v in self.votes if v.liked is False)
 
     @property
     def total_votes(self) -> int:
         return len(self.votes) if self.votes else 0
+
+    # Mantenemos average_rating por retrocompatibilidad (no se usa en el nuevo sistema)
+    @property
+    def average_rating(self) -> float:
+        return 0.0
 
 class SongVote(Base):
     __tablename__ = "song_votes"
@@ -37,7 +46,9 @@ class SongVote(Base):
     id = Column(Integer, primary_key=True, index=True)
     song_id = Column(Integer, ForeignKey("song_proposals.id", ondelete="CASCADE"), nullable=False)
     user_name = Column(String(100), nullable=False)
-    rating = Column(Integer, nullable=False)  # 1 a 5
+    liked = Column(Boolean, nullable=True)  # True = Sí me gusta, False = No me gusta
+    # rating se mantiene como alias para retrocompatibilidad de la columna SQLite
+    rating = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     song = relationship("SongProposal", back_populates="votes")

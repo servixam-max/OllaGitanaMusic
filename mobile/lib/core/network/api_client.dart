@@ -576,13 +576,13 @@ class ApiClient {
     }
   }
 
-  Future<bool> voteSong(int songId, int rating) async {
+  Future<bool> voteSongLike(int songId, bool liked) async {
     try {
       await _dio.post(
         "/api/v1/repertoire/songs/$songId/vote",
         data: {
           "user_name": _userName,
-          "rating": rating,
+          "liked": liked,
         },
       );
       return true;

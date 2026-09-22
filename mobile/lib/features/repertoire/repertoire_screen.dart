@@ -2,14 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:flutter_rating_bar/flutter_rating_bar.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/theme/stage_theme.dart';
 import '../../core/widgets/profile_app_bar_button.dart';
 
-enum _ViewMode { compact, cards }
+enum _ViewMode { compact, cards, ultraCompact }
 
 class RepertoireScreen extends StatefulWidget {
   const RepertoireScreen({super.key});
@@ -156,8 +155,19 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
     }
   }
 
-  Future<void> _vote(int songId, int rating) async {
-    final success = await _api.voteSong(songId, rating);
+  Future<void> _voteLike(int songId, bool liked) async {
+    if (!_api.isUserIdentified) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: StageTheme.alertRed,
+            content: Text("Selecciona tu perfil de músico antes de votar"),
+          ),
+        );
+      }
+      return;
+    }
+    final success = await _api.voteSongLike(songId, liked);
     if (success) _loadSongs(silent: true);
   }
 
@@ -410,13 +420,25 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
           ),
           IconButton(
             icon: Icon(
-              _viewMode == _ViewMode.compact ? Icons.grid_view_rounded : Icons.view_list_rounded,
+              _viewMode == _ViewMode.compact
+                  ? Icons.grid_view_rounded
+                  : _viewMode == _ViewMode.cards
+                      ? Icons.view_agenda_rounded
+                      : Icons.view_list_rounded,
               color: StageTheme.amberGold,
               size: 22,
             ),
-            tooltip: _viewMode == _ViewMode.compact ? "Vista tarjetas" : "Vista compacta",
+            tooltip: _viewMode == _ViewMode.compact
+                ? "Vista tarjetas"
+                : _viewMode == _ViewMode.cards
+                    ? "Vista ultra-compacta"
+                    : "Vista compacta",
             onPressed: () => setState(() {
-              _viewMode = _viewMode == _ViewMode.compact ? _ViewMode.cards : _ViewMode.compact;
+              _viewMode = _viewMode == _ViewMode.compact
+                  ? _ViewMode.cards
+                  : _viewMode == _ViewMode.cards
+                      ? _ViewMode.ultraCompact
+                      : _ViewMode.compact;
             }),
           ),
           ProfileAppBarButton(onProfileChanged: () => setState(() {})),
@@ -546,7 +568,9 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                             color: StageTheme.flameOrange,
                             child: _viewMode == _ViewMode.compact
                                 ? _buildCompactList(songsToShow)
-                                : _buildCardList(songsToShow),
+                                : _viewMode == _ViewMode.cards
+                                    ? _buildCardList(songsToShow)
+                                    : _buildUltraCompactList(songsToShow),
                           ),
               ),
 
@@ -745,22 +769,13 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                             ),
                           ),
                           const SizedBox(width: 8),
-                          // Rating y chip de estado interactivo
+                          // Indicador de votos Sí/No y chip de estado
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.star_rounded, size: 13, color: StageTheme.amberGold),
-                                  const SizedBox(width: 2),
-                                  Text(
-                                    "${(song["average_rating"] as num?)?.toStringAsFixed(1) ?? "0.0"}",
-                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
-                                  ),
-                                ],
-                              ),
+                              // Contador de votos sí/no compacto
+                              _buildVoteIndicatorCompact(song),
                               const SizedBox(height: 4),
                               // Chip de estado interactivo rápido
                               GestureDetector(
@@ -768,19 +783,19 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                                   decoration: BoxDecoration(
-                                    color: statusColor.withValues(alpha: 0.16),
+                                    color: _getStatusColor(song["status"] as String? ?? "").withValues(alpha: 0.16),
                                     borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: statusColor.withValues(alpha: 0.5), width: 1),
+                                    border: Border.all(color: _getStatusColor(song["status"] as String? ?? "").withValues(alpha: 0.5), width: 1),
                                   ),
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Text(
                                         _getStatusLabel(song["status"] as String? ?? ""),
-                                        style: TextStyle(fontSize: 10, color: statusColor, fontWeight: FontWeight.bold),
+                                        style: TextStyle(fontSize: 10, color: _getStatusColor(song["status"] as String? ?? ""), fontWeight: FontWeight.bold),
                                       ),
                                       const SizedBox(width: 2),
-                                      Icon(Icons.arrow_drop_down, size: 12, color: statusColor),
+                                      Icon(Icons.arrow_drop_down, size: 12, color: _getStatusColor(song["status"] as String? ?? "")),
                                     ],
                                   ),
                                 ),
@@ -929,43 +944,330 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                 const SizedBox(height: 12),
                 const Divider(color: StageTheme.border, height: 1),
                 const SizedBox(height: 10),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        RatingBar.builder(
-                          initialRating: (song["average_rating"] as num?)?.toDouble() ?? 0.0,
-                          minRating: 1,
-                          direction: Axis.horizontal,
-                          allowHalfRating: true,
-                          itemCount: 5,
-                          itemSize: 20,
-                          itemPadding: const EdgeInsets.symmetric(horizontal: 1.0),
-                          itemBuilder: (context, _) => const Icon(Icons.star_rounded, color: StageTheme.amberGold),
-                          onRatingUpdate: (rating) => _vote(song["id"] as int, rating.toInt()),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          "Nota: ${song["average_rating"]} (${song["total_votes"]} votos)",
-                          style: const TextStyle(color: StageTheme.textSecondary, fontSize: 11),
-                        ),
-                      ],
+                _buildVoteSection(song),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Widget compacto de votos para la vista lista (solo íconos)
+  Widget _buildVoteIndicatorCompact(dynamic song) {
+    final votes = (song["votes"] as List<dynamic>?) ?? [];
+    final yesVotes = song["yes_votes"] as int? ?? votes.where((v) => v["liked"] == true).length;
+    final totalVotes = song["total_votes"] as int? ?? votes.length;
+    final myVote = votes.cast<Map<String, dynamic>?>().firstWhere(
+      (v) => v?["user_name"]?.toString().toLowerCase() == _api.userName.toLowerCase(),
+      orElse: () => null,
+    );
+    final iLiked = myVote?["liked"] as bool?;
+
+    Color countColor = StageTheme.textMuted;
+    if (yesVotes >= 3) countColor = StageTheme.electricGreen;
+    else if (totalVotes > 0 && yesVotes >= 2) countColor = StageTheme.amberGold;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (iLiked == true)
+          const Icon(Icons.thumb_up_rounded, size: 12, color: StageTheme.electricGreen)
+        else if (iLiked == false)
+          const Icon(Icons.thumb_down_rounded, size: 12, color: StageTheme.alertRed)
+        else
+          const Icon(Icons.how_to_vote_outlined, size: 12, color: StageTheme.textMuted),
+        const SizedBox(width: 3),
+        Text(
+          "$yesVotes/4",
+          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: countColor),
+        ),
+      ],
+    );
+  }
+
+  /// Sección completa de votación Sí/No con panel de votantes (para vista cards y detail sheet)
+  Widget _buildVoteSection(dynamic song) {
+    final votes = (song["votes"] as List<dynamic>?) ?? [];
+    final yesVotes = song["yes_votes"] as int? ?? votes.where((v) => v["liked"] == true).length;
+    final noVotes = song["no_votes"] as int? ?? votes.where((v) => v["liked"] == false).length;
+    final totalVoters = yesVotes + noVotes;
+    final songId = song["id"] as int;
+
+    final myVote = votes.cast<Map<String, dynamic>?>().firstWhere(
+      (v) => v?["user_name"]?.toString().toLowerCase() == _api.userName.toLowerCase(),
+      orElse: () => null,
+    );
+    final iLiked = myVote?["liked"] as bool?;
+
+    Color resultColor = StageTheme.textMuted;
+    String resultLabel = "Sin votos aún";
+    if (totalVoters > 0) {
+      if (yesVotes >= 3) {
+        resultColor = StageTheme.electricGreen;
+        resultLabel = "✅ ¡Aprobada! ($yesVotes/4 votos Sí)";
+      } else if (yesVotes == 2) {
+        resultColor = StageTheme.amberGold;
+        resultLabel = "🤔 Empate ($yesVotes/4 votos Sí)";
+      } else {
+        resultColor = StageTheme.alertRed;
+        resultLabel = "❌ No convence ($yesVotes/4 votos Sí)";
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Resultado actual
+        Row(
+          children: [
+            Text(
+              "Votación banda",
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: StageTheme.textSecondary),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                resultLabel,
+                style: TextStyle(fontSize: 11, color: resultColor, fontWeight: FontWeight.w600),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        // Botones Sí / No
+        Row(
+          children: [
+            // Botón SÍ
+            Expanded(
+              child: GestureDetector(
+                onTap: () => _voteLike(songId, true),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    gradient: iLiked == true ? const LinearGradient(colors: [Color(0xFF00C853), Color(0xFF69F0AE)], begin: Alignment.topLeft, end: Alignment.bottomRight) : null,
+                    color: iLiked == true ? null : StageTheme.surfaceElevated,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: iLiked == true ? StageTheme.electricGreen : StageTheme.border,
+                      width: iLiked == true ? 1.5 : 1.0,
                     ),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _buildStatusMenu(song),
-                        const SizedBox(width: 4),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline_rounded, color: StageTheme.alertRed, size: 20),
-                          tooltip: "Eliminar canción",
-                          onPressed: () => _confirmDeleteSong(song["id"] as int, song["title"] as String? ?? "Canción"),
+                    boxShadow: iLiked == true ? [BoxShadow(color: StageTheme.electricGreen.withValues(alpha: 0.4), blurRadius: 8)] : null,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        iLiked == true ? Icons.thumb_up_rounded : Icons.thumb_up_outlined,
+                        size: 18,
+                        color: iLiked == true ? Colors.white : StageTheme.textSecondary,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        "Sí  ($yesVotes)",
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: iLiked == true ? Colors.white : StageTheme.textSecondary,
                         ),
-                      ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            // Botón NO
+            Expanded(
+              child: GestureDetector(
+                onTap: () => _voteLike(songId, false),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    gradient: iLiked == false ? LinearGradient(colors: [StageTheme.alertRed, const Color(0xFFFF5252)], begin: Alignment.topLeft, end: Alignment.bottomRight) : null,
+                    color: iLiked == false ? null : StageTheme.surfaceElevated,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: iLiked == false ? StageTheme.alertRed : StageTheme.border,
+                      width: iLiked == false ? 1.5 : 1.0,
+                    ),
+                    boxShadow: iLiked == false ? [BoxShadow(color: StageTheme.alertRed.withValues(alpha: 0.4), blurRadius: 8)] : null,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        iLiked == false ? Icons.thumb_down_rounded : Icons.thumb_down_outlined,
+                        size: 18,
+                        color: iLiked == false ? Colors.white : StageTheme.textSecondary,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        "No  ($noVotes)",
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: iLiked == false ? Colors.white : StageTheme.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            // Menú de estado
+            _buildStatusMenu(song),
+            const SizedBox(width: 4),
+            IconButton(
+              icon: const Icon(Icons.delete_outline_rounded, color: StageTheme.alertRed, size: 20),
+              tooltip: "Eliminar canción",
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              padding: EdgeInsets.zero,
+              onPressed: () => _confirmDeleteSong(songId, song["title"] as String? ?? "Canción"),
+            ),
+          ],
+        ),
+        // Panel de quién ha votado
+        if (votes.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: votes.map<Widget>((v) {
+              final name = v["user_name"] as String? ?? "";
+              final liked = v["liked"] as bool?;
+              final isMe = name.toLowerCase() == _api.userName.toLowerCase();
+              final voteColor = liked == true ? StageTheme.electricGreen : liked == false ? StageTheme.alertRed : StageTheme.textMuted;
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: isMe ? voteColor.withValues(alpha: 0.18) : StageTheme.surfaceElevated,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: isMe ? voteColor : StageTheme.border),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      liked == true ? Icons.thumb_up_rounded : liked == false ? Icons.thumb_down_rounded : Icons.circle_outlined,
+                      size: 10,
+                      color: voteColor,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      name,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: isMe ? FontWeight.bold : FontWeight.normal,
+                        color: isMe ? voteColor : StageTheme.textSecondary,
+                      ),
                     ),
                   ],
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// Vista ultra-compacta: máxima densidad, solo texto, sin portadas — ideal para 50+ canciones
+  Widget _buildUltraCompactList(List<dynamic> songs) {
+    return ListView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      itemCount: songs.length,
+      itemBuilder: (context, index) {
+        final song = songs[index];
+        final songId = song["id"] as int;
+        final statusColor = _getStatusColor(song["status"] as String? ?? "");
+        final isPlayingThis = _playingPreviewSongId == songId;
+        final votes = (song["votes"] as List<dynamic>?) ?? [];
+        final yesVotes = song["yes_votes"] as int? ?? votes.where((v) => v["liked"] == true).length;
+
+        Color voteColor = StageTheme.textMuted;
+        if (yesVotes >= 3) voteColor = StageTheme.electricGreen;
+        else if (yesVotes >= 2) voteColor = StageTheme.amberGold;
+        else if (yesVotes == 1) voteColor = StageTheme.alertRed;
+
+        return InkWell(
+          onTap: () => _showSongDetailSheet(song),
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            margin: const EdgeInsets.symmetric(vertical: 1.5),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+              color: isPlayingThis
+                  ? StageTheme.flameOrange.withValues(alpha: 0.1)
+                  : index.isEven
+                      ? StageTheme.surfaceElevated
+                      : StageTheme.background,
+              borderRadius: BorderRadius.circular(8),
+              border: isPlayingThis
+                  ? Border.all(color: StageTheme.flameOrange.withValues(alpha: 0.5))
+                  : Border.all(color: Colors.transparent),
+            ),
+            child: Row(
+              children: [
+                // Índice numérico
+                SizedBox(
+                  width: 28,
+                  child: Text(
+                    "${index + 1}",
+                    style: const TextStyle(fontSize: 11, color: StageTheme.textMuted, fontWeight: FontWeight.w500),
+                    textAlign: TextAlign.right,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Indicador lateral de estado (línea fina)
+                Container(width: 3, height: 28, decoration: BoxDecoration(color: statusColor, borderRadius: BorderRadius.circular(2))),
+                const SizedBox(width: 8),
+                // Título + Artista
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        song["title"] as String? ?? "",
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: isPlayingThis ? StageTheme.flameOrange : StageTheme.textPrimary,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        song["artist"] as String? ?? "",
+                        style: const TextStyle(fontSize: 11, color: StageTheme.textMuted),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                // Votos Sí/No mínimos
+                Text(
+                  "$yesVotes/4",
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: voteColor),
+                ),
+                const SizedBox(width: 6),
+                // Play mini
+                GestureDetector(
+                  onTap: () => _togglePreview(songId, song["preview_url"] as String?),
+                  child: Icon(
+                    isPlayingThis ? Icons.pause_circle_filled : Icons.play_circle_outline,
+                    size: 22,
+                    color: isPlayingThis
+                        ? StageTheme.flameOrange
+                        : (song["preview_url"] != null ? StageTheme.textSecondary : StageTheme.textMuted),
+                  ),
                 ),
               ],
             ),
@@ -975,7 +1277,6 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
     );
   }
 
-  /// Mini Reproductor Persistente en la parte inferior cuando suena un snippet
   Widget _buildBottomPreviewPlayer(dynamic song) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -1179,67 +1480,8 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                   ),
                   const SizedBox(height: 12),
 
-                  // Rating y estado
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          RatingBar.builder(
-                            initialRating: (song["average_rating"] as num?)?.toDouble() ?? 0.0,
-                            minRating: 1,
-                            direction: Axis.horizontal,
-                            allowHalfRating: true,
-                            itemCount: 5,
-                            itemSize: 26,
-                            itemPadding: const EdgeInsets.symmetric(horizontal: 1.0),
-                            itemBuilder: (context, _) => const Icon(Icons.star, color: StageTheme.amberGold),
-                            onRatingUpdate: (rating) {
-                              _vote(song["id"] as int, rating.toInt());
-                            },
-                          ),
-                          Text(
-                            "Media: ${song["average_rating"]} (${song["total_votes"]} votos)",
-                            style: const TextStyle(color: StageTheme.textSecondary, fontSize: 12),
-                          ),
-                          if ((song["votes"] as List<dynamic>?)?.isNotEmpty == true) ...[
-                            const SizedBox(height: 6),
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 4,
-                              children: (song["votes"] as List<dynamic>).map((v) {
-                                final name = v["user_name"] ?? "";
-                                final rating = v["rating"] ?? 0;
-                                final isMe = name.toString().toLowerCase() == _api.userName.toLowerCase();
-                                return Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                  decoration: BoxDecoration(
-                                    color: isMe
-                                        ? StageTheme.amberGold.withValues(alpha: 0.2)
-                                        : StageTheme.surfaceElevated,
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(
-                                      color: isMe ? StageTheme.amberGold : StageTheme.border,
-                                    ),
-                                  ),
-                                  child: Text(
-                                    "$name: $rating★",
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: isMe ? FontWeight.bold : FontWeight.normal,
-                                      color: isMe ? StageTheme.amberGold : StageTheme.textSecondary,
-                                    ),
-                                  ),
-                                );
-                              }).toList(),
-                            ),
-                          ],
-                        ],
-                      ),
-                      _buildStatusMenu(song),
-                    ],
-                  ),
+                  // Sección de votación Sí/No
+                  _buildVoteSection(song),
                   const SizedBox(height: 16),
 
                   // Botón eliminar
