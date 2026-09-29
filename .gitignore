@@ -43,3 +43,4 @@ mobile/android/app/build/
 .DS_Store
 .env
 *.log
+mobile/android/.kotlin/
