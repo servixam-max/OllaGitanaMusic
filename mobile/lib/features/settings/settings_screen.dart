@@ -101,25 +101,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
       stopwatch.stop();
 
       if (response.statusCode == 200) {
+        final version = response.data is Map ? (response.data["version"] ?? "1.0.0") : "1.0.0";
         setState(() {
           _isSuccess = true;
-          _testResult = "Conexión exitosa con el servidor (${stopwatch.elapsedMilliseconds} ms)\nVersión: ${response.data["version"] ?? "1.0.0"}";
+          _testResult = "Conexión exitosa con el servidor (${stopwatch.elapsedMilliseconds} ms)\nVersión: $version";
         });
+        _showConnectionSnack("✓ Conexión exitosa (${stopwatch.elapsedMilliseconds} ms) · Servidor v$version", true);
       } else {
         setState(() {
           _isSuccess = false;
           _testResult = "Respuesta inesperada: Código ${response.statusCode}";
         });
+        _showConnectionSnack("Respuesta inesperada del servidor: ${response.statusCode}", false);
       }
     } catch (e) {
       stopwatch.stop();
       setState(() {
         _isSuccess = false;
-        _testResult = "Error de conexión: No se pudo conectar con $url\nComprueba que el backend de Docker está levantado y en la misma red Wi-Fi o túnel.";
+        _testResult = "Error de conexión: No se pudo conectar con $url\nComprueba que el backend está levantado y en la misma red Wi-Fi o túnel.";
       });
+      _showConnectionSnack("✗ No se pudo conectar con $url", false);
     } finally {
       setState(() => _isTesting = false);
     }
+  }
+
+  /// Aviso inmediato con el resultado de la prueba: el detalle queda en la tarjeta,
+  /// pero el usuario debe enterarse del resultado sin tener que hacer scroll.
+  void _showConnectionSnack(String message, bool success) {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        backgroundColor: success ? StageTheme.electricGreen : StageTheme.alertRed,
+        content: Text(
+          message,
+          style: TextStyle(
+            color: success ? Colors.black : Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -364,7 +388,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       decoration: InputDecoration(
                         labelText: "Token de seguridad (opcional)",
                         hintText: "Igual que API_TOKEN en el servidor",
-                        helperText: "Obligatorio si el servidor está expuesto por túnel a Internet",
+                        helperText: "Obligatorio si el servidor está expuesto a Internet",
+                        helperMaxLines: 2,
                         helperStyle: const TextStyle(fontSize: 11),
                         filled: true,
                         fillColor: StageTheme.surfaceElevated,

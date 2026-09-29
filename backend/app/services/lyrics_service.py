@@ -195,12 +195,68 @@ class LyricsService:
 
         return None
 
+    @staticmethod
+    def _normalize_key(text: Optional[str]) -> str:
+        """
+        Clave de comparación tolerante para deduplicar resultados:
+        - minúsculas, sin acentos/diacríticos
+        - sin sufijos de versión entre paréntesis/corchetes: (Remastered 2011), [Live], (feat. X)
+        - sin puntuación sobrante
+        """
+        if not text:
+            return ""
+        import unicodedata
+
+        value = unicodedata.normalize("NFKD", str(text))
+        value = "".join(ch for ch in value if not unicodedata.combining(ch))
+        value = value.lower()
+        value = re.sub(r"[\(\[\{][^\)\]\}]*[\)\]\}]", " ", value)
+        value = re.sub(r"[^a-z0-9]+", " ", value)
+        return value.strip()
+
+    @classmethod
+    def dedupe_results(cls, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Elimina duplicados de LRCLIB conservando la mejor versión de cada canción.
+
+        LRCLIB devuelve varias entradas de la misma canción (distintas subidas,
+        con/sin letra sincronizada, variantes remaster). Mostrar todas produce
+        listas repetidas en la app. Se conserva la primera ocurrencia de cada
+        combinación título+artista (el orden de entrada ya viene priorizado:
+        sincronizada > con letra), pero si aparece una entrada CON letra
+        sincronizada más adelante, sustituye a la que no la tenía.
+        """
+        best: Dict[tuple, Dict[str, Any]] = {}
+        order: List[tuple] = []
+
+        for item in items:
+            key = (
+                cls._normalize_key(item.get("track_name")),
+                cls._normalize_key(item.get("artist_name")),
+            )
+            if not key[0]:
+                continue
+
+            existing = best.get(key)
+            if existing is None:
+                best[key] = item
+                order.append(key)
+                continue
+
+            # Preferir la entrada con letra sincronizada o, en su defecto, con letra
+            existing_rank = (1 if existing.get("has_synced") else 0, 1 if existing.get("plain_lyrics") else 0)
+            item_rank = (1 if item.get("has_synced") else 0, 1 if item.get("plain_lyrics") else 0)
+            if item_rank > existing_rank:
+                best[key] = item
+
+        return [best[key] for key in order]
+
     @classmethod
     async def search_lyrics(cls, query: str) -> List[Dict[str, Any]]:
         """
         Busca canciones y letras en LRCLIB.
         Ordena los resultados priorizando los que tienen letra sincronizada (karaoke),
-        que son los que enganchan bien con la música.
+        que son los que enganchan bien con la música, y elimina duplicados.
         """
         try:
             formatted = await cls._search_lrclib(query)
@@ -214,7 +270,7 @@ class LyricsService:
                     ),
                     reverse=True,
                 )
-                return formatted
+                return cls.dedupe_results(formatted)
         except Exception as e:
             print(f"[LyricsService] Error al buscar en LRCLIB: {e}")
 

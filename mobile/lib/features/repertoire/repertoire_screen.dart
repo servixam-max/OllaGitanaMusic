@@ -703,6 +703,8 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
             );
           }).toList(),
         ),
+        // Margen final para que el último chip no quede pegado/cortado en el borde
+        padding: const EdgeInsets.only(right: 12),
       ),
     );
   }

@@ -79,6 +79,63 @@ async def test_lyrics_search_endpoint():
         data = response.json()
         assert "results" in data
 
+
+def test_lyrics_dedupe_removes_repeated_entries():
+    """LRCLIB devuelve varias subidas de la misma canción: debe quedar una sola."""
+    from app.services.lyrics_service import LyricsService
+
+    items = [
+        {"track_name": "Tu Calorro", "artist_name": "Estopa", "has_synced": False, "plain_lyrics": "x"},
+        {"track_name": "Tu Calorro", "artist_name": "Estopa", "has_synced": True, "plain_lyrics": "x"},
+        {"track_name": "tu calorro", "artist_name": "Estopa", "has_synced": False, "plain_lyrics": "x"},
+        {"track_name": "Tu Calorro", "artist_name": "La Hungara", "has_synced": False, "plain_lyrics": "y"},
+    ]
+    deduped = LyricsService.dedupe_results(items)
+
+    assert len(deduped) == 2
+    # Gana la variante con karaoke (LRC sincronizado)
+    estopa = [d for d in deduped if d["artist_name"] == "Estopa"][0]
+    assert estopa["has_synced"] is True
+    # La versión de otro artista es una canción distinta y se conserva
+    assert any(d["artist_name"] == "La Hungara" for d in deduped)
+
+
+def test_lyrics_dedupe_ignores_version_suffixes():
+    """'Cancion (Remastered 2011)' y 'Cancion' son la misma entrada para la app."""
+    from app.services.lyrics_service import LyricsService
+
+    items = [
+        {"track_name": "Volando Voy", "artist_name": "Camarón", "has_synced": True, "plain_lyrics": None},
+        {"track_name": "Volando Voy (Remastered 2011)", "artist_name": "Camarón", "has_synced": False, "plain_lyrics": "z"},
+    ]
+    assert len(LyricsService.dedupe_results(items)) == 1
+
+
+def test_music_search_merges_providers_without_duplicates():
+    """Deezer + iTunes: la misma canción no debe aparecer dos veces."""
+    from app.services.spotify_service import SpotifyService
+
+    deezer = [
+        {"title": "Con La Luna Llena", "artist": "Los Chunguitos", "preview_url": "http://a", "cover_url": None},
+        {"title": "Me quedo contigo", "artist": "Los Chunguitos", "preview_url": "http://b", "cover_url": "c"},
+    ]
+    itunes = [
+        {"title": "Con La Luna Llena", "artist": "Los Chunguitos & Melendi", "preview_url": None, "cover_url": "cover2"},
+        {"title": "Me Quedo Contigo", "artist": "Los Rebujitos", "preview_url": "http://d", "cover_url": "e"},
+    ]
+    merged = SpotifyService._merge_unique(deezer, itunes)
+
+    titles = [m["title"].lower() for m in merged]
+    # 'Con La Luna Llena' se colapsa (mismo artista principal: Los Chunguitos)
+    assert titles.count("con la luna llena") == 1
+    # 'Me quedo contigo' de Los Rebujitos es OTRO artista: se conserva como resultado propio
+    assert titles.count("me quedo contigo") == 2
+    chunguitos = [m for m in merged if m["title"].lower() == "me quedo contigo" and m["artist"] == "Los Chunguitos"]
+    assert len(chunguitos) == 1
+    # No se pierde la carátula que solo traía el segundo proveedor
+    luna = [m for m in merged if m["title"] == "Con La Luna Llena"][0]
+    assert luna["cover_url"] == "cover2"
+
 @pytest.mark.asyncio
 async def test_stems_tasks_list():
     transport = ASGITransport(app=app)
