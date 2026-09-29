@@ -47,30 +47,17 @@ class SpotifyService:
 
     @staticmethod
     def _normalize_key(text: Optional[str]) -> str:
-        """Clave tolerante (sin acentos, sin sufijos de versión, sin puntuación) para deduplicar."""
-        if not text:
-            return ""
-        import unicodedata
+        """Clave tolerante (delegada al módulo compartido de deduplicación)."""
+        from app.services.text_dedupe import normalize_key
 
-        value = unicodedata.normalize("NFKD", str(text))
-        value = "".join(ch for ch in value if not unicodedata.combining(ch))
-        value = value.lower()
-        value = re.sub(r"[\(\[\{][^\)\]\}]*[\)\]\}]", " ", value)
-        value = re.sub(r"[^a-z0-9]+", " ", value)
-        return value.strip()
+        return normalize_key(text)
 
-    @classmethod
-    def _primary_artist(cls, artist_raw: Optional[str]) -> str:
-        """
-        Artista principal de un nombre en bruto: corta colaboraciones
-        ('Los Chunguitos & Melendi' -> 'Los Chunguitos') para que la misma
-        canción aparezca una sola vez aunque cada proveedor la acredite distinto.
-        Se calcula ANTES de normalizar, porque la normalización elimina '&'.
-        """
-        if not artist_raw:
-            return ""
-        head = re.split(r"(?i)\s*(?:&|,|/|\bfeat\b|\bfeaturing\b|\bwith\b|\bcon\b|\by\b|\band\b)\s*", artist_raw)[0]
-        return cls._normalize_key(head)
+    @staticmethod
+    def _primary_artist(artist_raw: Optional[str]) -> str:
+        """Artista principal de un crédito (delegado al módulo compartido)."""
+        from app.services.text_dedupe import primary_artist
+
+        return primary_artist(artist_raw)
 
     @classmethod
     def _merge_unique(cls, *lists: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -78,39 +65,22 @@ class SpotifyService:
         Une resultados de varios proveedores eliminando la misma canción repetida.
         Mantiene el orden de prioridad de los proveedores (el primero gana) y
         conserva la variante con preview y carátula cuando hay empate.
-        Dos entradas se consideran la misma canción si coinciden título y artista,
-        o si coinciden título y artista principal (casos 'Artista' vs 'Artista & Invitado').
         """
-        merged: List[Dict[str, Any]] = []
-        seen: dict = {}
+        from app.services.text_dedupe import dedupe_items
 
-        for results in lists:
-            for item in results:
-                title_key = cls._normalize_key(item.get("title"))
-                artist_key = cls._normalize_key(item.get("artist"))
-                if not title_key:
-                    continue
+        def rank(item: Dict[str, Any]) -> tuple:
+            return (
+                1 if item.get("preview_url") else 0,
+                1 if item.get("cover_url") else 0,
+            )
 
-                key = (title_key, artist_key)
-                primary = (title_key, cls._primary_artist(item.get("artist")))
-
-                index = seen.get(key)
-                if index is None:
-                    index = seen.get(primary)
-                if index is None:
-                    seen[key] = len(merged)
-                    seen.setdefault(primary, len(merged))
-                    merged.append(item)
-                    continue
-
-                # Si el que ya teníamos no trae preview/carátula y este sí, lo mejora
-                current = merged[index]
-                if (not current.get("preview_url") and item.get("preview_url")) or (
-                    not current.get("cover_url") and item.get("cover_url")
-                ):
-                    merged[index] = item
-
-        return merged
+        return dedupe_items(
+            [item for group in lists for item in group],
+            "title",
+            "artist",
+            rank=rank,
+            fill_fields=("preview_url", "cover_url", "album", "duration_ms"),
+        )
 
     @classmethod
     async def search_tracks(cls, query: str, limit: int = 15) -> List[Dict[str, Any]]:

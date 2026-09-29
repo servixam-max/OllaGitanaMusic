@@ -111,6 +111,23 @@ def test_lyrics_dedupe_ignores_version_suffixes():
     assert len(LyricsService.dedupe_results(items)) == 1
 
 
+def test_lyrics_dedupe_collapses_artist_credit_variants():
+    """Mismos colaboradores escritos distinto son una sola canción."""
+    from app.services.lyrics_service import LyricsService
+
+    items = [
+        {"track_name": "Tu Tu Tu", "artist_name": "Devito, Breshvica", "has_synced": True, "plain_lyrics": None},
+        {"track_name": "Tu Tu Tu", "artist_name": "Devito feat. Breshvica", "has_synced": True, "plain_lyrics": None},
+        {"track_name": "Tu Tu Tu", "artist_name": "Devito", "has_synced": True, "plain_lyrics": None},
+        {"track_name": "TU TU TU", "artist_name": "ORTYNXHAN", "has_synced": False, "plain_lyrics": "otro"},
+    ]
+    deduped = LyricsService.dedupe_results(items)
+
+    # Las tres primeras son la misma grabación; la de ORTYNXHAN es otra canción
+    assert len(deduped) == 2
+    assert {d["artist_name"] for d in deduped} == {"Devito, Breshvica", "ORTYNXHAN"}
+
+
 def test_music_search_merges_providers_without_duplicates():
     """Deezer + iTunes: la misma canción no debe aparecer dos veces."""
     from app.services.spotify_service import SpotifyService
