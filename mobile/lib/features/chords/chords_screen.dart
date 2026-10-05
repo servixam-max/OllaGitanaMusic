@@ -205,12 +205,55 @@ String transposeChordName(String chord, int semitones) {
   return '${kNoteNames[newIdx < 0 ? newIdx + 12 : newIdx]}$rest';
 }
 
-// Equivalencias enarmónicas para el diccionario de diagramas (A# -> Bb...)
-const Map<String, String> kEnharmonicEquivalents = {
-  'A#': 'Bb',
+// Grafía de acordes: equivalencias enharmónicas (para diagramas y para escribir
+// cada acorde con la ortografía correcta de su tonalidad).
+const Map<String, String> kSharpToFlat = {
+  'C#': 'Db',
   'D#': 'Eb',
+  'F#': 'Gb',
   'G#': 'Ab',
+  'A#': 'Bb',
 };
+const Map<String, String> kFlatToSharp = {
+  'Db': 'C#',
+  'Eb': 'D#',
+  'Gb': 'F#',
+  'Ab': 'G#',
+  'Bb': 'A#',
+};
+
+/// Raíz de un acorde ('A#m7' -> 'A#', 'Bb' -> 'Bb', 'C' -> 'C').
+String chordRootName(String chord) {
+  if (chord.length > 1 && (chord[1] == '#' || chord[1] == 'b')) return chord.substring(0, 2);
+  return chord.substring(0, 1);
+}
+
+// Tonalidades que estándar-mente se escriben con bemoles (siempre en grafía
+// de sostenidos, que es la que produce el transporte; se normaliza antes).
+const Set<String> kFlatMajorRoots = {'F', 'A#', 'D#', 'G#', 'C#'};
+const Set<String> kFlatMinorRoots = {'D', 'G', 'C', 'F', 'A#', 'D#'};
+
+/// Normaliza una raíz a la grafía con sostenidos ('Bb' -> 'A#').
+String sharpRootOf(String root) => kFlatToSharp[root] ?? root;
+
+/// ¿La tonalidad se escribe mejor con bemoles? (Fm sí; F#m no)
+bool keyPrefersFlats(String key) {
+  if (key.isEmpty || key == 'N/A') return false;
+  final root = sharpRootOf(chordRootName(key));
+  final minor = key.endsWith('m');
+  return minor ? kFlatMinorRoots.contains(root) : kFlatMajorRoots.contains(root);
+}
+
+/// Escribe un acorde con la ortografía correcta de la tonalidad dada:
+/// en Fm -> 'Bb', 'Eb', 'Db'; en F#m -> 'A#', 'C#', 'D'.
+String spellChordForKey(String chord, String key) {
+  if (chord.isEmpty || key.isEmpty || key == 'N/A') return chord;
+  if (!keyPrefersFlats(key)) return chord;
+  final root = chordRootName(chord);
+  final flat = kSharpToFlat[root];
+  if (flat == null) return chord;
+  return '$flat${chord.substring(root.length)}';
+}
 
 class ChordsScreen extends StatefulWidget {
   const ChordsScreen({super.key});
@@ -472,9 +515,19 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
     }
   }
 
+  /// Tonalidad que se está mostrando (la que suena, si el cifrado va transpuesto).
+  String _displayedKey() {
+    final key = _analysisResult?["estimated_key"]?.toString() ?? "N/A";
+    if (key == "N/A" || _transposeSemitones == 0 || !_showTransposedChords) return key;
+    return transposeChordName(key, _transposeSemitones);
+  }
+
   String _displayChord(String chord) {
-    if (!_showTransposedChords || _transposeSemitones == 0) return chord;
-    return transposeChordName(chord, _transposeSemitones);
+    var result = chord;
+    if (_showTransposedChords && _transposeSemitones != 0) {
+      result = transposeChordName(result, _transposeSemitones);
+    }
+    return spellChordForKey(result, _displayedKey());
   }
 
   List<String> _songUniqueChords() {
@@ -516,9 +569,14 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
     // Enarmónicos: los diagramas están en bemoles (Bb, Eb, Ab) y el cifrado en sostenidos
     final root = (clean.length > 1 && clean[1] == '#') ? clean.substring(0, 2) : clean.substring(0, 1);
     final rest = clean.substring(root.length);
-    final enharmonic = kEnharmonicEquivalents[root];
+    final enharmonic = kSharpToFlat[root];
     if (enharmonic != null && kGuitarChords.containsKey("$enharmonic$rest")) {
       return kGuitarChords["$enharmonic$rest"];
+    }
+    // Y al revés: cifrado en bemoles (Bb) con diagrama escrito en sostenidos (A#)
+    final sharp = kFlatToSharp[root];
+    if (sharp != null && kGuitarChords.containsKey("$sharp$rest")) {
+      return kGuitarChords["$sharp$rest"];
     }
 
     // Normalizar variaciones comunes (ej. Amin -> Am, Cmaj -> C, Emin -> Em)
@@ -950,7 +1008,7 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text("Tonalidad Dominante:", style: TextStyle(color: StageTheme.textSecondary, fontSize: 13)),
+                          const Text("Tonalidad:", style: TextStyle(color: StageTheme.textSecondary, fontSize: 13)),
                           const SizedBox(height: 4),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
@@ -959,10 +1017,18 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
                               borderRadius: BorderRadius.circular(16),
                             ),
                             child: Text(
-                              _analysisResult!["estimated_key"] ?? "N/A",
+                              _displayedKey(),
                               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
                             ),
                           ),
+                          if ((_analysisResult!["estimated_key"]?.toString() ?? "N/A") != _displayedKey())
+                            Padding(
+                              padding: const EdgeInsets.only(top: 3),
+                              child: Text(
+                                "original: ${_analysisResult!["estimated_key"]}",
+                                style: const TextStyle(color: StageTheme.textMuted, fontSize: 11),
+                              ),
+                            ),
                         ],
                       ),
                       if (_analysisResult!["tempo"] != null)
@@ -1091,7 +1157,7 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
                             children: [
                               const Expanded(
                                 child: Text(
-                                  "El audio suena en la nueva tonalidad (misma duración y tempo).",
+                                  "Cada − baja medio tono; −2 = un tono completo (ej. Gm → Fm). El audio suena ya en esa tonalidad.",
                                   style: TextStyle(fontSize: 11.5, color: StageTheme.textMuted),
                                 ),
                               ),
@@ -1329,11 +1395,12 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
                 final isCurrentlyLoaded = _analysisResult != null && _analysisResult!["id"] == item["id"];
 
                 // Tonalidad sonando (si se bajó el tono de una canción ya analizada)
-                final playKey = semis != 0 ? transposeChordName(key, semis) : key;
+                final transposedKey = semis != 0 ? transposeChordName(key, semis) : key;
+                final playKey = spellChordForKey(transposedKey, transposedKey);
                 final semisLabel = semis != 0 ? " (${semis > 0 ? '+' : ''}$semis)" : "";
                 // Acordes que tiene la canción (útil en listas largas)
                 final chordList = (item["unique_chords"] as List<dynamic>?)
-                        ?.map((e) => transposeChordName(e.toString(), semis))
+                        ?.map((e) => spellChordForKey(transposeChordName(e.toString(), semis), transposedKey))
                         .toList() ??
                     const <String>[];
 
