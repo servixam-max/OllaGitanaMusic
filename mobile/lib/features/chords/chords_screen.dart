@@ -1152,31 +1152,31 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
                           ],
                         ),
                         if (_transposeSemitones != 0) ...[
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              const Expanded(
-                                child: Text(
-                                  "Cada − baja medio tono; −2 = un tono completo (ej. Gm → Fm). El audio suena ya en esa tonalidad.",
-                                  style: TextStyle(fontSize: 11.5, color: StageTheme.textMuted),
-                                ),
+                          const SizedBox(height: 6),
+                          const Text(
+                            "Cada − baja medio tono; −2 = un tono completo (ej. Gm → Fm). El audio suena ya en esa tonalidad.",
+                            style: TextStyle(fontSize: 11.5, color: StageTheme.textMuted, height: 1.3),
+                          ),
+                          const SizedBox(height: 2),
+                          SizedBox(
+                            width: double.infinity,
+                            child: TextButton.icon(
+                              style: TextButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                alignment: Alignment.centerLeft,
+                                padding: const EdgeInsets.symmetric(horizontal: 4),
+                                foregroundColor: _showTransposedChords ? StageTheme.electricGreen : StageTheme.textSecondary,
                               ),
-                              TextButton.icon(
-                                style: TextButton.styleFrom(
-                                  visualDensity: VisualDensity.compact,
-                                  foregroundColor: _showTransposedChords ? StageTheme.electricGreen : StageTheme.textSecondary,
-                                ),
-                                icon: Icon(
-                                  _showTransposedChords ? Icons.check_box : Icons.check_box_outline_blank,
-                                  size: 16,
-                                ),
-                                label: Text(
-                                  "Mostrar cifrado en la nueva tonalidad",
-                                  style: const TextStyle(fontSize: 11.5),
-                                ),
-                                onPressed: () => setState(() => _showTransposedChords = !_showTransposedChords),
+                              icon: Icon(
+                                _showTransposedChords ? Icons.check_box : Icons.check_box_outline_blank,
+                                size: 18,
                               ),
-                            ],
+                              label: const Text(
+                                "Mostrar cifrado en la nueva tonalidad",
+                                style: TextStyle(fontSize: 12.5),
+                              ),
+                              onPressed: () => setState(() => _showTransposedChords = !_showTransposedChords),
+                            ),
                           ),
                         ],
                       ],
