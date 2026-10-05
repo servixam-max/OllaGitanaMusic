@@ -558,7 +558,8 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
         return _displayChord(seg["chord"] as String? ?? "");
       }
     }
-    return _analysisResult!["estimated_key"];
+    // Antes del primer segmento: mostrar la tonalidad (la que suena si está transpuesta)
+    return _displayedKey();
   }
 
   ChordDiagramData? _getChordDiagramData(String? chordName) {
