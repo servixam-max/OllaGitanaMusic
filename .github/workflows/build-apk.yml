@@ -68,6 +68,11 @@ jobs:
           cd mobile
           flutter analyze
 
+      - name: Tests Flutter (transposición de acordes)
+        run: |
+          cd mobile
+          flutter test
+
       - name: Decodificar keystore de release (si existe el secret)
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}

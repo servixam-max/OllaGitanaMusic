@@ -575,6 +575,43 @@ class ApiClient {
     }
   }
 
+  /// Opción "Bajar el tono": transpone el audio de una canción ya analizada
+  /// sin cambiar su duración ni su tempo (0 = volver al original).
+  Future<Map<String, dynamic>?> transposeAnalysis(String id, int semitones) async {
+    try {
+      final response = await _dio.post(
+        "/api/v1/chords/transpose/$id",
+        queryParameters: {"semitones": semitones},
+        options: Options(
+          receiveTimeout: const Duration(minutes: 2),
+          sendTimeout: const Duration(minutes: 2),
+        ),
+      );
+      return response.data;
+    } catch (e) {
+      print("[ApiClient] Error cambiando el tono: $e");
+      return null;
+    }
+  }
+
+  /// Re-analiza con el motor actual una canción antigua de la biblioteca
+  /// (cifrado simplificado: segmentos de >= 1 s y acordes de la tonalidad).
+  Future<Map<String, dynamic>?> reanalyzeSong(String id) async {
+    try {
+      final response = await _dio.post(
+        "/api/v1/chords/reanalyze/$id",
+        options: Options(
+          receiveTimeout: const Duration(minutes: 5),
+          sendTimeout: const Duration(minutes: 5),
+        ),
+      );
+      return response.data;
+    } catch (e) {
+      print("[ApiClient] Error re-analizando canción: $e");
+      return null;
+    }
+  }
+
   // --- Módulo 4: Repertorio & Previews (Deezer / iTunes / Spotify Fallback Directo) ---
   Future<List<dynamic>> searchSpotify(String query) async {
     // 1. Intentar a través del backend

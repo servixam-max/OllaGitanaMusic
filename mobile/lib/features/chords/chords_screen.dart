@@ -64,6 +64,17 @@ const Map<String, ChordDiagramData> kGuitarChords = {
   "Dsus4": ChordDiagramData(name: "Dsus4", frets: [-1, -1, 0, 2, 3, 3], fingers: [0, 0, 0, 1, 2, 3]),
   "Asus4": ChordDiagramData(name: "Asus4", frets: [-1, 0, 2, 2, 3, 0], fingers: [0, 0, 1, 2, 3, 0]),
   "Esus4": ChordDiagramData(name: "Esus4", frets: [0, 2, 2, 2, 0, 0], fingers: [0, 1, 2, 3, 0, 0]),
+  // Ampliación para tonalidades transpuestas (bajar/subir el tono)
+  "Fm": ChordDiagramData(name: "Fm", frets: [1, 3, 3, 1, 1, 1], baseFret: 1, fingers: [1, 3, 4, 1, 1, 1]),
+  "Cm": ChordDiagramData(name: "Cm", frets: [-1, 3, 5, 5, 4, 3], baseFret: 3, fingers: [0, 1, 3, 4, 2, 1]),
+  "Bbm": ChordDiagramData(name: "Bbm", frets: [-1, 1, 3, 3, 2, 1], baseFret: 1, fingers: [0, 1, 3, 4, 2, 1]),
+  "Gm7": ChordDiagramData(name: "Gm7", frets: [3, 5, 3, 3, 3, 3], baseFret: 3, fingers: [1, 4, 1, 1, 1, 1]),
+  "Cm7": ChordDiagramData(name: "Cm7", frets: [-1, 3, 5, 3, 4, 3], baseFret: 3, fingers: [0, 1, 4, 2, 3, 1]),
+  "Fm7": ChordDiagramData(name: "Fm7", frets: [1, 3, 1, 1, 1, 1], baseFret: 1, fingers: [1, 3, 1, 1, 1, 1]),
+  "Bb7": ChordDiagramData(name: "Bb7", frets: [-1, 1, 3, 1, 3, 1], baseFret: 1, fingers: [0, 1, 3, 1, 4, 1]),
+  "Eb": ChordDiagramData(name: "Eb", frets: [-1, 6, 5, 3, 4, 3], baseFret: 3, fingers: [0, 4, 3, 1, 2, 1]),
+  "Ab": ChordDiagramData(name: "Ab", frets: [4, 6, 6, 5, 4, 4], baseFret: 4, fingers: [1, 3, 4, 2, 1, 1]),
+  "C#": ChordDiagramData(name: "C#", frets: [-1, 4, 6, 6, 6, 4], baseFret: 4, fingers: [0, 1, 3, 4, 4, 1]),
 };
 
 // Dibujante de diagrama de acordes de guitarra en lienzo (CustomPainter)
@@ -179,6 +190,28 @@ class GuitarChordPainter extends CustomPainter {
   bool shouldRepaint(covariant GuitarChordPainter oldDelegate) => oldDelegate.chord != chord;
 }
 
+// Nombres de nota para transposición de cifrado (sostenidos)
+const List<String> kNoteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+/// Transporta un acorde N semitonos (p. ej. 'Gm' con -2 -> 'Fm').
+/// El sufijo (m, 7, m7...) se conserva intacto.
+String transposeChordName(String chord, int semitones) {
+  if (semitones % 12 == 0) return chord;
+  final root = (chord.length > 1 && chord[1] == '#') ? chord.substring(0, 2) : chord.substring(0, 1);
+  final rest = chord.substring(root.length);
+  final idx = kNoteNames.indexOf(root);
+  if (idx < 0) return chord; // 'N/A' u otros rótulos no musicales
+  final newIdx = (idx + semitones) % 12;
+  return '${kNoteNames[newIdx < 0 ? newIdx + 12 : newIdx]}$rest';
+}
+
+// Equivalencias enarmónicas para el diccionario de diagramas (A# -> Bb...)
+const Map<String, String> kEnharmonicEquivalents = {
+  'A#': 'Bb',
+  'D#': 'Eb',
+  'G#': 'Ab',
+};
+
 class ChordsScreen extends StatefulWidget {
   const ChordsScreen({super.key});
 
@@ -208,6 +241,12 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
   Duration _audioDuration = Duration.zero;
   bool _isPlayingAudio = false;
   String? _manuallySelectedChord;
+
+  // Opción "Bajar el tono" (transposición del audio ya analizado)
+  int _transposeSemitones = 0;
+  bool _showTransposedChords = false;
+  bool _isTransposing = false;
+  bool _isReanalyzing = false;
 
   @override
   void initState() {
@@ -289,9 +328,13 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
       _manuallySelectedChord = null;
       _audioPosition = Duration.zero;
       _audioDuration = Duration.zero;
+      _transposeSemitones = (analysis["transpose_semitones"] as num?)?.toInt() ?? 0;
+      // Si la canción ya venía transpuesta, mostrar el cifrado en la nueva tonalidad
+      _showTransposedChords = _transposeSemitones != 0;
     });
 
-    final audioUrl = analysis["audio_url"];
+    // Suena la versión transpuesta si ya se bajó/subió el tono de esta canción
+    final audioUrl = analysis["play_url"] ?? analysis["transposed_audio_url"] ?? analysis["audio_url"];
     if (audioUrl != null && audioUrl.toString().isNotEmpty) {
       try {
         final fullUrl = _api.getFullUrl(audioUrl);
@@ -299,6 +342,84 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
       } catch (e) {
         print("[ChordsScreen] Error cargando audio: $e");
       }
+    }
+  }
+
+  /// "Bajar el tono" de la canción ya analizada: transpone el audio en el servidor
+  /// (misma duración y tempo) y, si se pide, muestra también el cifrado transportado.
+  Future<void> _changeTranspose(int delta) async {
+    final analysis = _analysisResult;
+    if (analysis == null || _isTransposing) return;
+
+    final target = (_transposeSemitones + delta).clamp(-6, 6);
+    if (target == _transposeSemitones) return;
+
+    final wasPlaying = _isPlayingAudio;
+    setState(() => _isTransposing = true);
+
+    final updated = await _api.transposeAnalysis(analysis["id"] ?? "", target);
+
+    if (!mounted) return;
+    if (updated == null || updated["error"] != null) {
+      setState(() => _isTransposing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("No se pudo cambiar el tono. Comprueba la conexión con el servidor.")),
+      );
+      return;
+    }
+
+    // Mantener la posición de reproducción al cambiar de versión
+    final resumeAt = _audioPosition;
+    final playUrl = updated["play_url"] ?? updated["transposed_audio_url"] ?? updated["audio_url"];
+    try {
+      if (playUrl != null && playUrl.toString().isNotEmpty) {
+        await _audioPlayer.setUrl(_api.getFullUrl(playUrl));
+        if (resumeAt > Duration.zero) {
+          await _audioPlayer.seek(resumeAt);
+        }
+        if (wasPlaying) await _audioPlayer.play();
+      }
+    } catch (e) {
+      print("[ChordsScreen] Error recargando audio transpuesto: $e");
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _analysisResult = {
+        ...analysis,
+        "transpose_semitones": updated["transpose_semitones"] ?? target,
+        "transposed_audio_url": updated["transposed_audio_url"],
+        "play_url": playUrl,
+      };
+      _transposeSemitones = (updated["transpose_semitones"] as num?)?.toInt() ?? target;
+      _isTransposing = false;
+    });
+    _loadChordHistory();
+  }
+
+  /// Re-analiza con el motor v2 una canción antigua de la biblioteca.
+  Future<void> _reanalyzeCurrent() async {
+    final analysis = _analysisResult;
+    if (analysis == null || _isReanalyzing) return;
+
+    setState(() => _isReanalyzing = true);
+    final updated = await _api.reanalyzeSong(analysis["id"] ?? "");
+    if (!mounted) return;
+    setState(() => _isReanalyzing = false);
+
+    if (updated == null || updated["error"] != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("No se pudo re-analizar la canción.")),
+      );
+      return;
+    }
+
+    await _loadAnalysisIntoPlayer(updated);
+    _loadChordHistory();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Análisis actualizado: tonalidad ${updated["estimated_key"] ?? "N/A"}")),
+      );
     }
   }
 
@@ -351,8 +472,29 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
     }
   }
 
+  String _displayChord(String chord) {
+    if (!_showTransposedChords || _transposeSemitones == 0) return chord;
+    return transposeChordName(chord, _transposeSemitones);
+  }
+
+  List<String> _songUniqueChords() {
+    if (_analysisResult == null) return [];
+    final existing = _analysisResult!["unique_chords"] as List<dynamic>?;
+    if (existing != null && existing.isNotEmpty) {
+      return existing.map((e) => e.toString()).toList();
+    }
+    // Compatibilidad con análisis viejos sin unique_chords
+    final timeline = _analysisResult!["timeline"] as List<dynamic>? ?? [];
+    final unique = <String>[];
+    for (final seg in timeline) {
+      final chord = seg["chord"]?.toString();
+      if (chord != null && !unique.contains(chord)) unique.add(chord);
+    }
+    return unique;
+  }
+
   String? _getCurrentActiveChord() {
-    if (_manuallySelectedChord != null) return _manuallySelectedChord;
+    if (_manuallySelectedChord != null) return _displayChord(_manuallySelectedChord!);
     if (_analysisResult == null) return null;
     final timeline = _analysisResult!["timeline"] as List<dynamic>? ?? [];
     final currentSec = _audioPosition.inMilliseconds / 1000.0;
@@ -360,7 +502,7 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
       final start = (seg["start"] as num?)?.toDouble() ?? 0.0;
       final end = (seg["end"] as num?)?.toDouble() ?? 0.0;
       if (currentSec >= start && currentSec < end) {
-        return seg["chord"] as String?;
+        return _displayChord(seg["chord"] as String? ?? "");
       }
     }
     return _analysisResult!["estimated_key"];
@@ -370,6 +512,14 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
     if (chordName == null || chordName.isEmpty) return null;
     String clean = chordName.trim();
     if (kGuitarChords.containsKey(clean)) return kGuitarChords[clean];
+
+    // Enarmónicos: los diagramas están en bemoles (Bb, Eb, Ab) y el cifrado en sostenidos
+    final root = (clean.length > 1 && clean[1] == '#') ? clean.substring(0, 2) : clean.substring(0, 1);
+    final rest = clean.substring(root.length);
+    final enharmonic = kEnharmonicEquivalents[root];
+    if (enharmonic != null && kGuitarChords.containsKey("$enharmonic$rest")) {
+      return kGuitarChords["$enharmonic$rest"];
+    }
 
     // Normalizar variaciones comunes (ej. Amin -> Am, Cmaj -> C, Emin -> Em)
     if (clean.endsWith("min")) clean = "${clean.substring(0, clean.length - 3)}m";
@@ -769,6 +919,16 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
                         ),
                       ),
                       IconButton(
+                        icon: _isReanalyzing
+                            ? const SizedBox(
+                                width: 16, height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: StageTheme.amberGold),
+                              )
+                            : const Icon(Icons.auto_fix_high, size: 20, color: StageTheme.amberGold),
+                        tooltip: "Re-analizar con el detector actual",
+                        onPressed: _isReanalyzing ? null : _reanalyzeCurrent,
+                      ),
+                      IconButton(
                         icon: const Icon(Icons.close, size: 20, color: StageTheme.textMuted),
                         tooltip: "Cerrar reproductor",
                         onPressed: () {
@@ -863,9 +1023,130 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
                         ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 14),
 
-                  // Diagrama de mástil de guitarra para el acorde activo
+                  // OPCIÓN "BAJAR EL TONO": transpone la canción ya analizada
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: StageTheme.surface,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: StageTheme.amberGold.withValues(alpha: 0.35)),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.tune, size: 18, color: StageTheme.amberGold),
+                            const SizedBox(width: 8),
+                            const Expanded(
+                              child: Text(
+                                "Bajar el tono",
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                              ),
+                            ),
+                            if (_isTransposing)
+                              const SizedBox(
+                                width: 18, height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: StageTheme.amberGold),
+                              )
+                            else ...[
+                              IconButton(
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(Icons.remove_circle, color: StageTheme.flameOrange),
+                                tooltip: "Bajar medio tono",
+                                onPressed: _transposeSemitones <= -6 ? null : () => _changeTranspose(-1),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: _transposeSemitones != 0
+                                      ? StageTheme.flameOrange
+                                      : StageTheme.surfaceElevated,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  _transposeSemitones == 0
+                                      ? "Original"
+                                      : (_transposeSemitones > 0 ? "+$_transposeSemitones" : "$_transposeSemitones"),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                    color: _transposeSemitones != 0 ? Colors.white : StageTheme.textSecondary,
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                visualDensity: VisualDensity.compact,
+                                icon: const Icon(Icons.add_circle, color: StageTheme.flameOrange),
+                                tooltip: "Subir medio tono",
+                                onPressed: _transposeSemitones >= 6 ? null : () => _changeTranspose(1),
+                              ),
+                            ],
+                          ],
+                        ),
+                        if (_transposeSemitones != 0) ...[
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              const Expanded(
+                                child: Text(
+                                  "El audio suena en la nueva tonalidad (misma duración y tempo).",
+                                  style: TextStyle(fontSize: 11.5, color: StageTheme.textMuted),
+                                ),
+                              ),
+                              TextButton.icon(
+                                style: TextButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                  foregroundColor: _showTransposedChords ? StageTheme.electricGreen : StageTheme.textSecondary,
+                                ),
+                                icon: Icon(
+                                  _showTransposedChords ? Icons.check_box : Icons.check_box_outline_blank,
+                                  size: 16,
+                                ),
+                                label: Text(
+                                  "Mostrar cifrado en la nueva tonalidad",
+                                  style: const TextStyle(fontSize: 11.5),
+                                ),
+                                onPressed: () => setState(() => _showTransposedChords = !_showTransposedChords),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+
+                  // Resumen: los acordes que tiene la canción (del análisis)
+                  if (_songUniqueChords().isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    const Text(
+                      "Acordes de la canción:",
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: StageTheme.textSecondary),
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _songUniqueChords().map((chord) {
+                        final shown = _displayChord(chord);
+                        return Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: StageTheme.surface,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: StageTheme.amberGold.withValues(alpha: 0.5)),
+                          ),
+                          child: Text(
+                            shown,
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: StageTheme.amberGold),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
+
+                  const SizedBox(height: 16),
                   if (chordData != null)
                     Center(
                       child: Container(
@@ -947,7 +1228,7 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
             ...((_analysisResult!["timeline"] as List<dynamic>? ?? []).map((seg) {
               final start = (seg["start"] as num?)?.toDouble() ?? 0.0;
               final end = (seg["end"] as num?)?.toDouble() ?? 0.0;
-              final chord = seg["chord"] ?? "N/A";
+              final chord = _displayChord(seg["chord"]?.toString() ?? "N/A");
               final confidence = (((seg["confidence"] as num?)?.toDouble() ?? 0.0) * 100).toInt();
 
               final currentSec = _audioPosition.inMilliseconds / 1000.0;
@@ -993,7 +1274,7 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
                   trailing: const Icon(Icons.play_arrow, color: StageTheme.amberGold, size: 20),
                   onTap: () {
                     _audioPlayer.seek(Duration(milliseconds: (start * 1000).toInt()));
-                    setState(() => _manuallySelectedChord = chord);
+                    setState(() => _manuallySelectedChord = seg["chord"]?.toString());
                   },
                 ),
               );
@@ -1042,26 +1323,70 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
                 final item = _chordHistory[index];
                 final filename = item["filename"] ?? "Audio";
                 final key = item["estimated_key"] ?? "N/A";
+                final semis = (item["transpose_semitones"] as num?)?.toInt() ?? 0;
                 final durationSec = (item["duration"] as num?)?.toDouble() ?? 0.0;
                 final durationStr = _formatDuration(Duration(seconds: durationSec.toInt()));
                 final isCurrentlyLoaded = _analysisResult != null && _analysisResult!["id"] == item["id"];
+
+                // Tonalidad sonando (si se bajó el tono de una canción ya analizada)
+                final playKey = semis != 0 ? transposeChordName(key, semis) : key;
+                final semisLabel = semis != 0 ? " (${semis > 0 ? '+' : ''}$semis)" : "";
+                // Acordes que tiene la canción (útil en listas largas)
+                final chordList = (item["unique_chords"] as List<dynamic>?)
+                        ?.map((e) => transposeChordName(e.toString(), semis))
+                        .toList() ??
+                    const <String>[];
 
                 return Card(
                   margin: const EdgeInsets.symmetric(vertical: 4),
                   color: isCurrentlyLoaded ? StageTheme.flameOrange.withValues(alpha: 0.12) : null,
                   child: ListTile(
+                    isThreeLine: chordList.isNotEmpty,
                     leading: CircleAvatar(
                       backgroundColor: StageTheme.amberGold.withValues(alpha: 0.2),
                       child: Text(
-                        key,
+                        playKey,
                         style: const TextStyle(color: StageTheme.amberGold, fontWeight: FontWeight.bold, fontSize: 14),
                       ),
                     ),
                     title: Text(filename, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                    subtitle: Text("Tonalidad: $key • Duración: $durationStr", style: const TextStyle(fontSize: 12, color: StageTheme.textSecondary)),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Tonalidad: $playKey$semisLabel • Duración: $durationStr",
+                          style: const TextStyle(fontSize: 12, color: StageTheme.textSecondary),
+                        ),
+                        if (chordList.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 3),
+                            child: Text(
+                              chordList.take(8).join(" · ") + (chordList.length > 8 ? " · …" : ""),
+                              style: const TextStyle(fontSize: 12, color: StageTheme.amberGold, fontWeight: FontWeight.bold),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                    ),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        IconButton(
+                          icon: const Icon(Icons.auto_fix_high, color: StageTheme.amberGold, size: 20),
+                          tooltip: "Re-analizar con el detector actual",
+                          onPressed: _isReanalyzing
+                              ? null
+                              : () async {
+                                  setState(() => _isReanalyzing = true);
+                                  final updated = await _api.reanalyzeSong(item["id"] ?? "");
+                                  if (!mounted) return;
+                                  setState(() => _isReanalyzing = false);
+                                  if (updated != null && updated["error"] == null) {
+                                    _loadChordHistory();
+                                    if (isCurrentlyLoaded) await _loadAnalysisIntoPlayer(updated);
+                                  }
+                                },
+                        ),
                         IconButton(
                           icon: const Icon(Icons.delete_outline, color: StageTheme.alertRed),
                           tooltip: "Eliminar de la biblioteca",

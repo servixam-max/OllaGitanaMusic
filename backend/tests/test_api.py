@@ -253,3 +253,75 @@ async def test_events_ordered_by_event_date():
             # Limpiar SIEMPRE los eventos de prueba para no ensuciar datos reales
             await client.delete(f"/api/v1/events/{late_id}")
             await client.delete(f"/api/v1/events/{early_id}")
+
+
+# ---------------------------------------------------------------- Motor de acordes v2
+
+def test_chord_engine_simplify_merges_short_segments():
+    """Los segmentos de menos de 1 s se fusionan: 'un segundo o nada'."""
+    from app.services.chord_service import simplify_timeline
+
+    timeline = [
+        {"start": 0.0, "end": 4.0, "chord": "Am"},
+        {"start": 4.0, "end": 4.4, "chord": "F"},   # 0.4 s -> debe absorberse
+        {"start": 4.4, "end": 8.0, "chord": "Am"},
+        {"start": 8.0, "end": 12.0, "chord": "G"},
+    ]
+    simplified = simplify_timeline(timeline, min_duration=1.0)
+
+    assert all(seg["end"] - seg["start"] >= 1.0 for seg in simplified)
+    chords = [seg["chord"] for seg in simplified]
+    assert "F" not in chords, "el segmento espurio corto debía desaparecer"
+    assert chords == ["Am", "G"]
+
+
+def test_chord_engine_folds_tensions_to_triads():
+    """maj7/m7/sus4 se pliegan a su tríada; el 7 dominante se conserva."""
+    from app.services.chord_service import fold_tension
+
+    assert fold_tension("Gmaj7") == "G"
+    assert fold_tension("Am7") == "Am"
+    assert fold_tension("Dsus4") == "D"
+    assert fold_tension("C#maj7") == "C#"
+    assert fold_tension("A7") == "A7"
+    assert fold_tension("Gm") == "Gm"
+
+
+def test_chord_engine_diatonic_vocabulary_penalizes_outsiders():
+    """En Gm, la tónica y sus vecinos diatónicos pesan mucho más que un acorde ajeno."""
+    from app.services.chord_service import diatonic_vocabulary, key_function_weight
+
+    labels, weights = diatonic_vocabulary("Gm")
+    assert "Gm" in labels and "D7" in labels and "A#" in labels
+    # Un acorde totalmente ajeno (p. ej. F#) queda muy penalizado
+    assert key_function_weight("Gm", "Gm") > key_function_weight("F#", "Gm")
+    assert key_function_weight("D7", "Gm") > 0.9
+    assert key_function_weight("F#", "Gm") <= 0.6
+
+
+def test_chord_engine_key_estimate_prefers_expected_tonic():
+    """Un croma sintético de Gm debe estimar Gm (no Gmaj7 ni una tonalidad vecina)."""
+    import numpy as np
+    from app.services.chord_service import _estimate_key, NOTES
+
+    chroma = np.zeros(12)
+    for note, weight in [("G", 1.0), ("A#", 0.9), ("D", 0.8), ("F", 0.6), ("D#", 0.5)]:
+        chroma[NOTES.index(note)] = weight
+    assert _estimate_key(chroma) == "Gm"
+
+
+def test_chord_engine_timeline_segments_never_short_and_ordered():
+    """La línea temporal simplificada no tiene huecos, solapes ni segmentos cortos."""
+    from app.services.chord_service import simplify_timeline
+
+    timeline = [
+        {"start": 0.0, "end": 2.0, "chord": "Am"},
+        {"start": 2.0, "end": 2.3, "chord": "C"},
+        {"start": 2.3, "end": 2.6, "chord": "D"},
+        {"start": 2.6, "end": 6.0, "chord": "Am"},
+    ]
+    simplified = simplify_timeline(timeline, min_duration=1.0)
+    for prev, nxt in zip(simplified, simplified[1:]):
+        assert abs(prev["end"] - nxt["start"]) < 1e-6
+    for seg in simplified:
+        assert seg["end"] - seg["start"] >= 1.0

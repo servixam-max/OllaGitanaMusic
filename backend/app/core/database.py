@@ -30,6 +30,10 @@ LIGHTWEIGHT_MIGRATIONS = {
     "song_votes": {
         "liked": "BOOLEAN",  # v1.2.2: sistema de votos Sí/No binario
     },
+    "analyzed_songs": {
+        "transpose_semitones": "INTEGER DEFAULT 0",  # v1.4.0: opción de bajar tono
+        "transposed_audio_url": "VARCHAR(1024)",     # v1.4.0: audio transpuesto
+    },
 }
 
 
