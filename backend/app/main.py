@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
+import hashlib
 import io
 import json
 import logging
@@ -9,7 +10,7 @@ import tarfile
 import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
@@ -195,13 +196,62 @@ app.mount("/static/previews", StaticFiles(directory=str(settings.previews_dir)),
 async def redirect_web_app():
     return RedirectResponse(url="/olla/app/", status_code=308)
 
+def _web_cache_tag() -> str:
+    """Etiqueta de versión del bundle web (p.ej. '1.4.3+32') para cache-busting."""
+    try:
+        data = json.loads((WEB_DIR / "version.json").read_text(encoding="utf-8"))
+        version = str(data.get("version", "")).strip()
+        build = str(data.get("build_number", "")).strip()
+        if version:
+            return f"{version}+{build}" if build else version
+    except Exception:
+        pass
+    try:
+        return (WEB_DIR / "version.txt").read_text(encoding="utf-8").strip().lstrip("v") or "0"
+    except Exception:
+        return "0"
+
+
 @app.middleware("http")
-async def revalidate_web_app(request, call_next):
-    """Los assets de la PWA mantienen la misma URL entre releases: obliga al
-    navegador a revalidar (ETag → 304 barato) para que la versión nueva llegue
-    en el siguiente arranque de la app en vez de quedarse días en caché."""
-    response = await call_next(request)
+async def cache_busting_web_app(request, call_next):
+    """Cache-busting de la PWA + revalidación de assets.
+
+    Los ficheros del bundle mantienen la MISMA URL entre releases, así que un
+    navegador (o una PWA instalada) con copia en caché revalida index.html
+    (idéntico entre releases → 304) y sirve flutter_bootstrap.js y main.dart.js
+    desde su caché: 'Recargar' no cambia la versión.
+
+    Por eso los puntos de entrada se sirven con ?v=<versión> inyectado:
+      index.html            → flutter_bootstrap.js?v=X
+      flutter_bootstrap.js  → main.dart.js?v=X
+    Cada release cambia la URL efectiva y fuerza la descarga, incluso desde una
+    copia vieja. El resto de /app/* se marca no-cache (revalidación por ETag).
+    """
     path = request.url.path
+    if path in ("/app/", "/app/index.html", "/app/flutter_bootstrap.js"):
+        rel = "flutter_bootstrap.js" if path == "/app/flutter_bootstrap.js" else "index.html"
+        fp = WEB_DIR / rel
+        if fp.exists():
+            tag = _web_cache_tag()
+            data = fp.read_bytes()
+            if rel == "index.html":
+                data = data.replace(
+                    b'src="flutter_bootstrap.js"',
+                    f'src="flutter_bootstrap.js?v={tag}"'.encode(),
+                )
+                media = "text/html; charset=utf-8"
+            else:
+                data = data.replace(
+                    b'"main.dart.js"', f'"main.dart.js?v={tag}"'.encode()
+                )
+                media = "application/javascript; charset=utf-8"
+            etag = '"' + hashlib.md5(data).hexdigest() + '"'
+            headers = {"ETag": etag, "Cache-Control": "no-cache"}
+            if request.headers.get("if-none-match") == etag:
+                return Response(status_code=304, headers=headers)
+            return Response(content=data, media_type=media, headers=headers)
+
+    response = await call_next(request)
     if path == "/app" or path.startswith("/app/"):
         response.headers["Cache-Control"] = "no-cache"
     return response
