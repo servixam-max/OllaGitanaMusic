@@ -1,6 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 import io
+import json
 import logging
 from pathlib import Path
 import shutil
@@ -53,6 +54,19 @@ if not placeholder_file.exists():
         encoding="utf-8"
     )
 
+def _installed_web_tag() -> str | None:
+    """Versión REAL del bundle web instalado, desde version.json (lo genera flutter build),
+    normalizada al formato del tag de GitHub (vX.Y.Z). None si no se puede leer."""
+    try:
+        data = json.loads((WEB_DIR / "version.json").read_text(encoding="utf-8"))
+        v = str(data.get("version", "")).strip()
+        if not v:
+            return None
+        return v if v.startswith("v") else f"v{v}"
+    except Exception:
+        return None
+
+
 async def sync_web_app(force: bool = False):
     """Descarga e instala automáticamente la última versión de la Web PWA desde GitHub Releases."""
     try:
@@ -71,11 +85,19 @@ async def sync_web_app(force: bool = False):
             tag = data.get("tag_name", "")
             version_file = WEB_DIR / "version.txt"
             
-            if not force and version_file.exists():
-                current_tag = version_file.read_text(encoding="utf-8").strip()
-                if current_tag == tag and (WEB_DIR / "flutter_bootstrap.js").exists():
+            if not force and (WEB_DIR / "flutter_bootstrap.js").exists():
+                # La fuente de verdad es la versión REAL del bundle instalado (version.json).
+                # version.txt no sirve: sync_version.py lo escribe al preparar una release,
+                # antes de que el bundle se descargue, y falseaba el "ya está al día".
+                installed_tag = _installed_web_tag()
+                if installed_tag is None and version_file.exists():
+                    installed_tag = version_file.read_text(encoding="utf-8").strip()
+                if installed_tag == tag:
+                    if version_file.exists() and version_file.read_text(encoding="utf-8").strip() != tag:
+                        version_file.write_text(tag, encoding="utf-8")
                     logger.info(f"[WebSync] Web PWA ya está al día ({tag})")
                     return {"status": "up_to_date", "version": tag}
+                logger.info(f"[WebSync] Instalada {installed_tag or '?'} · publicada {tag} → actualizando")
             
             # Buscar asset olla-gitana-web.tar.gz
             web_asset = None
@@ -123,6 +145,16 @@ async def sync_web_app(force: bool = False):
         logger.error(f"[WebSync] Error sincronizando Web PWA: {e}")
         return {"status": "error", "message": str(e)}
 
+async def periodic_web_sync(interval_seconds: int = 2 * 3600):
+    """Comprueba periódicamente si hay una versión nueva de la PWA, sin depender de reinicios."""
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            await sync_web_app()
+        except Exception as e:
+            logger.error(f"[WebSync] Error en comprobación periódica: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Inicialización de base de datos y directorios de almacenamiento
@@ -132,6 +164,7 @@ async def lifespan(app: FastAPI):
     settings.previews_dir.mkdir(parents=True, exist_ok=True)
     # Iniciar comprobación y sincronización de la versión web en segundo plano
     asyncio.create_task(sync_web_app())
+    asyncio.create_task(periodic_web_sync())
     # Arrancar la cola de separación de pistas (worker único) y recuperar tareas huérfanas
     stem_queue.start()
     yield
@@ -161,6 +194,18 @@ app.mount("/static/previews", StaticFiles(directory=str(settings.previews_dir)),
 @app.get("/app")
 async def redirect_web_app():
     return RedirectResponse(url="/olla/app/", status_code=308)
+
+@app.middleware("http")
+async def revalidate_web_app(request, call_next):
+    """Los assets de la PWA mantienen la misma URL entre releases: obliga al
+    navegador a revalidar (ETag → 304 barato) para que la versión nueva llegue
+    en el siguiente arranque de la app en vez de quedarse días en caché."""
+    response = await call_next(request)
+    path = request.url.path
+    if path == "/app" or path.startswith("/app/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
 
 # Montar la aplicación Web PWA (Flutter Web para iOS y navegadores)
 app.mount("/app", StaticFiles(directory=str(WEB_DIR), html=True), name="web_app")
