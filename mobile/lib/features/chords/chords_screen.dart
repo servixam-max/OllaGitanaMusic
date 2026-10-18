@@ -863,15 +863,25 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                               ),
                               onPressed: () async {
-                                final abierta = await openUrlInAndroidApp(url.toString(), "com.songsterr");
-                                if (!abierta) {
+                                final res = await openUrlInAndroidApp(url.toString(), "com.songsterr");
+                                if (res == "song") return;
+                                if (res == "app") {
+                                  // La app no acepta enlaces: se abre igualmente y
+                                  // dejamos el título copiado para su buscador.
+                                  await Clipboard.setData(ClipboardData(text: "$title - $artist"));
                                   if (ctx.mounted) {
                                     ScaffoldMessenger.of(ctx).showSnackBar(
-                                      const SnackBar(content: Text("No se pudo abrir la app de Songsterr. Se abre en el navegador.")),
+                                      SnackBar(content: Text("Abriendo Songsterr · título copiado: \"$title\"")),
                                     );
                                   }
-                                  await openSongsterrWeb(ctx, url.toString());
+                                  return;
                                 }
+                                if (ctx.mounted) {
+                                  ScaffoldMessenger.of(ctx).showSnackBar(
+                                    const SnackBar(content: Text("No se pudo abrir la app de Songsterr. Se abre en el navegador.")),
+                                  );
+                                }
+                                await openSongsterrWeb(ctx, url.toString());
                               },
                             ),
                           ),
@@ -1527,17 +1537,18 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
 const MethodChannel _androidIntentsChannel = MethodChannel("com.ollagitana.music/intents");
 
 /// Abre una URL dentro de una app Android concreta (p. ej. Songsterr).
-/// Devuelve false si la app no está instalada o no acepta el enlace.
-Future<bool> openUrlInAndroidApp(String url, String packageName) async {
-  if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return false;
+/// Devuelve "song" si la app abrió el enlace, "app" si solo se pudo abrir la
+/// app (no acepta enlaces) y "none" si no está instalada.
+Future<String> openUrlInAndroidApp(String url, String packageName) async {
+  if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return "none";
   try {
-    final abierta = await _androidIntentsChannel.invokeMethod<bool>(
+    final res = await _androidIntentsChannel.invokeMethod<String>(
       "openInApp",
       {"url": url, "package": packageName},
     );
-    return abierta ?? false;
+    return res ?? "none";
   } catch (_) {
-    return false;
+    return "none";
   }
 }
 
