@@ -26,6 +26,8 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
   bool _isLoading = true;
   String _selectedFilter = "todas"; // todas, propuesta, para_ensayar, en_repertorio, descartada
   _ViewMode _viewMode = _ViewMode.compact;
+  bool _groupByArtist = false;
+  final Set<String> _expandedGroups = <String>{};
 
   int? _playingPreviewSongId;
   WebSocketReconnect? _wsChannel;
@@ -502,13 +504,38 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                   padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
                   child: Row(
                     children: [
-                      Text(
-                        _searchQuery.isNotEmpty
-                            ? "${songsToShow.length} de ${_songs.length} canciones encontradas"
-                            : "${songsToShow.length} ${_selectedFilter == 'todas' ? 'temas en total' : _getStatusLabel(_selectedFilter).toLowerCase()}",
-                        style: const TextStyle(color: StageTheme.textMuted, fontSize: 12, fontWeight: FontWeight.w600),
+                      Expanded(
+                        child: Text(
+                          _searchQuery.isNotEmpty
+                              ? "${songsToShow.length} de ${_songs.length} canciones encontradas"
+                              : "${songsToShow.length} ${_selectedFilter == 'todas' ? 'temas en total' : _getStatusLabel(_selectedFilter).toLowerCase()}",
+                          style: const TextStyle(color: StageTheme.textMuted, fontSize: 12, fontWeight: FontWeight.w600),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                      const Spacer(),
+                      TextButton.icon(
+                        onPressed: () => setState(() => _groupByArtist = !_groupByArtist),
+                        icon: Icon(
+                          _groupByArtist ? Icons.view_list_rounded : Icons.workspaces_outline,
+                          size: 14,
+                          color: _groupByArtist ? StageTheme.flameOrange : StageTheme.textMuted,
+                        ),
+                        label: Text(
+                          _groupByArtist ? "Lista plana" : "Agrupar por grupo",
+                          style: TextStyle(
+                            color: _groupByArtist ? StageTheme.flameOrange : StageTheme.textMuted,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      ),
+                      if (_searchQuery.isNotEmpty) const SizedBox(width: 8),
                       if (_searchQuery.isNotEmpty)
                         GestureDetector(
                           onTap: () {
@@ -585,11 +612,13 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                         : RefreshIndicator(
                             onRefresh: () => _loadSongs(),
                             color: StageTheme.flameOrange,
-                            child: _viewMode == _ViewMode.compact
-                                ? _buildCompactList(songsToShow)
-                                : _viewMode == _ViewMode.cards
-                                    ? _buildCardList(songsToShow)
-                                    : _buildUltraCompactList(songsToShow),
+                            child: _groupByArtist
+                                ? _buildGroupedList(songsToShow)
+                                : _viewMode == _ViewMode.compact
+                                    ? _buildCompactList(songsToShow)
+                                    : _viewMode == _ViewMode.cards
+                                        ? _buildCardList(songsToShow)
+                                        : _buildUltraCompactList(songsToShow),
                           ),
               ),
 
@@ -715,151 +744,249 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       itemCount: songs.length,
-      itemBuilder: (context, index) {
-        final song = songs[index];
-        final isPlayingThis = _playingPreviewSongId == song["id"] as int?;
-        final statusColor = _getStatusColor(song["status"] as String? ?? "");
+      itemBuilder: (context, index) => _buildCompactSongTile(songs[index]),
+    );
+  }
 
-        return Container(
-          margin: const EdgeInsets.symmetric(vertical: 3),
-          decoration: BoxDecoration(
-            color: isPlayingThis
-                ? StageTheme.flameOrange.withValues(alpha: 0.12)
-                : StageTheme.surfaceElevated,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: isPlayingThis
-                  ? StageTheme.flameOrange.withValues(alpha: 0.6)
-                  : StageTheme.border,
-              width: isPlayingThis ? 1.2 : 1.0,
-            ),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Indicador de color lateral del estado
-                Container(width: 4.5, color: statusColor),
-                Expanded(
-                  child: InkWell(
-                    borderRadius: const BorderRadius.horizontal(right: Radius.circular(14)),
-                    onTap: () => _showSongDetailSheet(song),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-                      child: Row(
+  /// Fila compacta reutilizable: lista normal y listas agrupadas por grupo.
+  Widget _buildCompactSongTile(dynamic song) {
+    final isPlayingThis = _playingPreviewSongId == song["id"] as int?;
+    final statusColor = _getStatusColor(song["status"] as String? ?? "");
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 3),
+      decoration: BoxDecoration(
+        color: isPlayingThis
+            ? StageTheme.flameOrange.withValues(alpha: 0.12)
+            : StageTheme.surfaceElevated,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isPlayingThis
+              ? StageTheme.flameOrange.withValues(alpha: 0.6)
+              : StageTheme.border,
+          width: isPlayingThis ? 1.2 : 1.0,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Indicador de color lateral del estado
+            Container(width: 4.5, color: statusColor),
+            Expanded(
+              child: InkWell(
+                borderRadius: const BorderRadius.horizontal(right: Radius.circular(14)),
+                onTap: () => _showSongDetailSheet(song),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                  child: Row(
+                    children: [
+                      // Portada pequeña con esquinas redondeadas
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: song["cover_url"] != null
+                            ? Image.network(
+                                song["cover_url"] as String,
+                                width: 46,
+                                height: 46,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => _placeholderCover(46),
+                              )
+                            : _placeholderCover(46),
+                      ),
+                      const SizedBox(width: 11),
+                      // Título y artista
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              song["title"] as String? ?? "",
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                                color: isPlayingThis ? StageTheme.flameOrange : StageTheme.textPrimary,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              song["artist"] as String? ?? "",
+                              style: const TextStyle(color: StageTheme.textSecondary, fontSize: 12),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      // Indicador de votos Sí/No y chip de estado
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          // Portada pequeña con esquinas redondeadas
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: song["cover_url"] != null
-                                ? Image.network(
-                                    song["cover_url"] as String,
-                                    width: 46,
-                                    height: 46,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => _placeholderCover(46),
-                                  )
-                                : _placeholderCover(46),
-                          ),
-                          const SizedBox(width: 11),
-                          // Título y artista
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  song["title"] as String? ?? "",
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                    color: isPlayingThis ? StageTheme.flameOrange : StageTheme.textPrimary,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  song["artist"] as String? ?? "",
-                                  style: const TextStyle(color: StageTheme.textSecondary, fontSize: 12),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          // Indicador de votos Sí/No y chip de estado
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              // Contador de votos sí/no compacto
-                              _buildVoteIndicatorCompact(song),
-                              const SizedBox(height: 4),
-                              // Chip de estado interactivo rápido
-                              GestureDetector(
-                                onTap: () => _showInlineStatusMenu(context, song),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                                  decoration: BoxDecoration(
-                                    color: _getStatusColor(song["status"] as String? ?? "").withValues(alpha: 0.16),
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: _getStatusColor(song["status"] as String? ?? "").withValues(alpha: 0.5), width: 1),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        _getStatusLabel(song["status"] as String? ?? ""),
-                                        style: TextStyle(fontSize: 10, color: _getStatusColor(song["status"] as String? ?? ""), fontWeight: FontWeight.bold),
-                                      ),
-                                      const SizedBox(width: 2),
-                                      Icon(Icons.arrow_drop_down, size: 12, color: _getStatusColor(song["status"] as String? ?? "")),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(width: 4),
-                          // Botón Play/Pause circular moderno
-                          IconButton(
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
-                            icon: Container(
-                              width: 34,
-                              height: 34,
+                          // Contador de votos sí/no compacto
+                          _buildVoteIndicatorCompact(song),
+                          const SizedBox(height: 4),
+                          // Chip de estado interactivo rápido
+                          GestureDetector(
+                            onTap: () => _showInlineStatusMenu(context, song),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                               decoration: BoxDecoration(
-                                gradient: isPlayingThis ? StageTheme.flameGradient : null,
-                                color: isPlayingThis ? null : StageTheme.surface,
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: isPlayingThis ? Colors.transparent : StageTheme.border,
-                                ),
+                                color: _getStatusColor(song["status"] as String? ?? "").withValues(alpha: 0.16),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: _getStatusColor(song["status"] as String? ?? "").withValues(alpha: 0.5), width: 1),
                               ),
-                              child: Icon(
-                                isPlayingThis ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                                color: isPlayingThis
-                                    ? Colors.white
-                                    : (song["preview_url"] != null ? StageTheme.flameOrange : StageTheme.textMuted),
-                                size: 20,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    _getStatusLabel(song["status"] as String? ?? ""),
+                                    style: TextStyle(fontSize: 10, color: _getStatusColor(song["status"] as String? ?? ""), fontWeight: FontWeight.bold),
+                                  ),
+                                  const SizedBox(width: 2),
+                                  Icon(Icons.arrow_drop_down, size: 12, color: _getStatusColor(song["status"] as String? ?? "")),
+                                ],
                               ),
                             ),
-                            onPressed: () => _togglePreview(song["id"] as int, song["preview_url"] as String?),
                           ),
                         ],
                       ),
-                    ),
+                      const SizedBox(width: 4),
+                      // Botón Play/Pause circular moderno
+                      IconButton(
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
+                        icon: Container(
+                          width: 34,
+                          height: 34,
+                          decoration: BoxDecoration(
+                            gradient: isPlayingThis ? StageTheme.flameGradient : null,
+                            color: isPlayingThis ? null : StageTheme.surface,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: isPlayingThis ? Colors.transparent : StageTheme.border,
+                            ),
+                          ),
+                          child: Icon(
+                            isPlayingThis ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                            color: isPlayingThis
+                                ? Colors.white
+                                : (song["preview_url"] != null ? StageTheme.flameOrange : StageTheme.textMuted),
+                            size: 20,
+                          ),
+                        ),
+                        onPressed: () => _togglePreview(song["id"] as int, song["preview_url"] as String?),
+                      ),
+                    ],
                   ),
                 ),
-              ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Agrupa las canciones por grupo/artista en secciones desplegables.
+  Widget _buildGroupedList(List<dynamic> songs) {
+    final Map<String, List<dynamic>> groups = <String, List<dynamic>>{};
+    for (final song in songs) {
+      final raw = (song["artist"] ?? "").toString().trim();
+      final artist = raw.isEmpty ? "Sin artista" : raw;
+      groups.putIfAbsent(artist, () => <dynamic>[]).add(song);
+    }
+    final artists = groups.keys.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+    return ListView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      itemCount: artists.length,
+      itemBuilder: (context, index) {
+        final artist = artists[index];
+        final items = groups[artist]!;
+        final expanded = _expandedGroups.contains(artist);
+
+        return Container(
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          decoration: BoxDecoration(
+            color: StageTheme.surface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: StageTheme.border),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Theme(
+            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              key: PageStorageKey<String>("artist-group-$artist"),
+              initiallyExpanded: expanded,
+              onExpansionChanged: (open) {
+                setState(() {
+                  if (open) {
+                    _expandedGroups.add(artist);
+                  } else {
+                    _expandedGroups.remove(artist);
+                  }
+                });
+              },
+              tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+              childrenPadding: const EdgeInsets.fromLTRB(0, 0, 0, 6),
+              leading: CircleAvatar(
+                radius: 16,
+                backgroundColor: StageTheme.flameOrange.withValues(alpha: 0.18),
+                child: Text(
+                  artist.substring(0, 1).toUpperCase(),
+                  style: const TextStyle(color: StageTheme.flameOrange, fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+              ),
+              title: Text(
+                artist,
+                style: const TextStyle(color: StageTheme.textPrimary, fontWeight: FontWeight.bold, fontSize: 14),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: Text(
+                "${items.length} tema${items.length == 1 ? "" : "s"}",
+                style: const TextStyle(color: StageTheme.textMuted, fontSize: 11),
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.filter_alt_outlined, size: 18, color: StageTheme.amberGold),
+                    tooltip: "Ver solo $artist",
+                    onPressed: () => _filterByArtist(artist),
+                  ),
+                  Icon(
+                    expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+                    color: StageTheme.textSecondary,
+                    size: 20,
+                  ),
+                ],
+              ),
+              children: items.map<Widget>((song) => _buildCompactSongTile(song)).toList(),
             ),
           ),
         );
       },
     );
+  }
+
+  /// Filtra la lista por un grupo concreto (usa la búsqueda existente).
+  void _filterByArtist(String artist) {
+    _searchController.text = artist;
+    setState(() {
+      _searchQuery = artist;
+      _isSearchExpanded = true;
+      _expandedGroups.add(artist);
+    });
   }
 
   /// Vista tarjetas: más detallada, estilo tarjeta de streaming moderna
