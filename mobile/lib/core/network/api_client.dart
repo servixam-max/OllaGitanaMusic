@@ -613,12 +613,12 @@ class ApiClient {
   }
 
   // --- Módulo 4: Repertorio & Previews (Deezer / iTunes / Spotify Fallback Directo) ---
-  Future<List<dynamic>> searchSpotify(String query) async {
+  Future<List<dynamic>> searchSpotify(String query, {int limit = 15, int offset = 0}) async {
     // 1. Intentar a través del backend
     try {
       final response = await _dio.get(
         "/api/v1/repertoire/spotify/search",
-        queryParameters: {"query": query},
+        queryParameters: {"query": query, "limit": limit, "offset": offset},
       );
       final results = response.data["results"] as List<dynamic>?;
       if (results != null && results.isNotEmpty) return results;
@@ -628,7 +628,7 @@ class ApiClient {
     try {
       final resp = await _publicDio.get(
         "https://api.deezer.com/search",
-        queryParameters: {"q": query, "limit": 15},
+        queryParameters: {"q": query, "limit": limit, "index": offset},
       );
       if (resp.statusCode == 200) {
         final data = resp.data["data"] as List<dynamic>? ?? [];
@@ -655,10 +655,11 @@ class ApiClient {
     try {
       final resp = await _publicDio.get(
         "https://itunes.apple.com/search",
-        queryParameters: {"term": query, "entity": "song", "limit": 15},
+        queryParameters: {"term": query, "entity": "song", "limit": (limit + offset) > 200 ? 200 : (limit + offset)},
       );
       if (resp.statusCode == 200) {
-        final results = resp.data["results"] as List<dynamic>? ?? [];
+        final all = resp.data["results"] as List<dynamic>? ?? [];
+        final results = offset > 0 ? all.skip(offset).toList() : all;
         return results.map((item) {
           String? cover = item["artworkUrl100"];
           if (cover != null) {

@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -830,28 +832,67 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
                   ),
                   const SizedBox(height: 24),
 
-                  SizedBox(
-                    width: double.infinity,
-                    height: 48,
-                    child: ElevatedButton.icon(
-                      icon: const Icon(Icons.open_in_new, size: 20),
-                      label: const Text("Abrir Tablatura Completa en Songsterr", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: StageTheme.flameOrange,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SizedBox(
+                            height: 48,
+                            child: OutlinedButton.icon(
+                              icon: const Icon(Icons.public, size: 20),
+                              label: const Text("Abrir en web", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: StageTheme.amberGold,
+                                side: BorderSide(color: StageTheme.amberGold.withValues(alpha: 0.6)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              onPressed: () => openSongsterrWeb(ctx, url.toString()),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SizedBox(
+                            height: 48,
+                            child: ElevatedButton.icon(
+                              icon: const Icon(Icons.music_note, size: 20),
+                              label: const Text("Abrir en app", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: StageTheme.flameOrange,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              onPressed: () async {
+                                final abierta = await openUrlInAndroidApp(url.toString(), "com.songsterr");
+                                if (!abierta) {
+                                  if (ctx.mounted) {
+                                    ScaffoldMessenger.of(ctx).showSnackBar(
+                                      const SnackBar(content: Text("No se pudo abrir la app de Songsterr. Se abre en el navegador.")),
+                                    );
+                                  }
+                                  await openSongsterrWeb(ctx, url.toString());
+                                }
+                              },
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  else
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.open_in_new, size: 20),
+                        label: const Text("Abrir Tablatura Completa en Songsterr", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: StageTheme.flameOrange,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onPressed: () => openSongsterrWeb(ctx, url.toString()),
                       ),
-                      onPressed: () async {
-                        try {
-                          await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-                        } catch (_) {
-                          ScaffoldMessenger.of(ctx).showSnackBar(
-                            const SnackBar(content: Text("No se pudo abrir la tablatura")),
-                          );
-                        }
-                      },
                     ),
-                  ),
                   const SizedBox(height: 8),
                   SizedBox(
                     width: double.infinity,
@@ -1478,5 +1519,43 @@ class _ChordsScreenState extends State<ChordsScreen> with SingleTickerProviderSt
         ],
       ),
     );
+  }
+}
+
+
+// --- Apertura de Songsterr: web o app de Android ---
+const MethodChannel _androidIntentsChannel = MethodChannel("com.ollagitana.music/intents");
+
+/// Abre una URL dentro de una app Android concreta (p. ej. Songsterr).
+/// Devuelve false si la app no está instalada o no acepta el enlace.
+Future<bool> openUrlInAndroidApp(String url, String packageName) async {
+  if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return false;
+  try {
+    final abierta = await _androidIntentsChannel.invokeMethod<bool>(
+      "openInApp",
+      {"url": url, "package": packageName},
+    );
+    return abierta ?? false;
+  } catch (_) {
+    return false;
+  }
+}
+
+/// Abre la tablatura en el navegador. En Android usa Custom Tab para que sea
+/// siempre navegador, aunque la app de Songsterr esté instalada.
+Future<void> openSongsterrWeb(BuildContext context, String url) async {
+  final uri = Uri.parse(url);
+  try {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
+    } else {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  } catch (_) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("No se pudo abrir la tablatura")),
+      );
+    }
   }
 }

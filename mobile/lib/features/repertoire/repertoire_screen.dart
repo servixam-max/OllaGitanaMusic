@@ -1627,8 +1627,21 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
     final TextEditingController searchCtrl = TextEditingController();
     final AudioPlayer dialogPlayer = AudioPlayer();
     List<dynamic> spotifyResults = [];
+    final Set<int> selected = <int>{};
     bool searching = false;
+    bool loadingMore = false;
+    bool adding = false;
+    bool hasMore = false;
+    bool searchedOnce = false;
+    String lastQuery = "";
     String? playingUrl;
+    const int pageSize = 15;
+
+    String trackKey(dynamic t) {
+      final id = (t["spotify_id"] ?? "").toString();
+      if (id.isNotEmpty) return id;
+      return "${(t["title"] ?? "").toString().toLowerCase()}|${(t["artist"] ?? "").toString().toLowerCase()}";
+    }
 
     showStageSheet(
       context: context,
@@ -1646,11 +1659,72 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
               final q = searchCtrl.text.trim();
               if (q.isEmpty) return;
               setModalState(() => searching = true);
-              final res = await _api.searchSpotify(q);
+              final res = await _api.searchSpotify(q, limit: pageSize, offset: 0);
               setModalState(() {
                 spotifyResults = res;
+                lastQuery = q;
+                selected.clear();
                 searching = false;
+                searchedOnce = true;
+                hasMore = res.length >= pageSize;
               });
+            }
+
+            Future<void> loadMore() async {
+              if (lastQuery.isEmpty || loadingMore) return;
+              setModalState(() => loadingMore = true);
+              final res = await _api.searchSpotify(lastQuery, limit: pageSize, offset: spotifyResults.length);
+              setModalState(() {
+                final seen = spotifyResults.map(trackKey).toSet();
+                final nuevos = res.where((t) => !seen.contains(trackKey(t))).toList();
+                spotifyResults.addAll(nuevos);
+                loadingMore = false;
+                hasMore = nuevos.isNotEmpty;
+              });
+            }
+
+            Future<void> addSelected() async {
+              if (selected.isEmpty || adding) return;
+              setModalState(() => adding = true);
+              final existentes = _songs
+                  .map((s) => "${(s["title"] ?? "").toString().toLowerCase().trim()}|${(s["artist"] ?? "").toString().toLowerCase().trim()}")
+                  .toSet();
+              int ok = 0, dup = 0, fail = 0;
+              final indices = selected.toList()..sort();
+              for (final i in indices) {
+                if (i < 0 || i >= spotifyResults.length) continue;
+                final track = spotifyResults[i];
+                final key = "${(track["title"] ?? "").toString().toLowerCase().trim()}|${(track["artist"] ?? "").toString().toLowerCase().trim()}";
+                if (existentes.contains(key)) {
+                  dup++;
+                  continue;
+                }
+                final res = await _api.createSongProposal(
+                  title: track["title"],
+                  artist: track["artist"],
+                  album: track["album"],
+                  coverUrl: track["cover_url"],
+                  previewUrl: track["preview_url"],
+                  spotifyId: track["spotify_id"],
+                );
+                if (res != null) {
+                  ok++;
+                  existentes.add(key);
+                } else {
+                  fail++;
+                }
+              }
+              await dialogPlayer.stop();
+              if (!ctx.mounted) return;
+              Navigator.pop(ctx);
+              _loadSongs(silent: true);
+              final partes = <String>[];
+              if (ok > 0) partes.add("$ok tema${ok == 1 ? "" : "s"} añadido${ok == 1 ? "" : "s"}");
+              if (dup > 0) partes.add("$dup ya estaba${dup == 1 ? "" : "n"}");
+              if (fail > 0) partes.add("$fail no se pudo añadir");
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(partes.isEmpty ? "No se añadió ningún tema" : partes.join(" · "))),
+              );
             }
 
             Future<void> toggleDialogPreview(String? url) async {
@@ -1692,7 +1766,7 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                           child: TextField(
                             controller: searchCtrl,
                             decoration: InputDecoration(
-                              hintText: "Buscar canción o artista...",
+                              hintText: "Buscar grupo o canción...",
                               filled: true,
                               fillColor: StageTheme.surfaceElevated,
                               prefixIcon: const Icon(Icons.search, color: StageTheme.flameOrange),
@@ -1713,23 +1787,72 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
+                    if (searchedOnce && spotifyResults.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 2),
+                        child: Text(
+                          "${spotifyResults.length} resultados · toca las canciones para seleccionarlas",
+                          style: const TextStyle(color: StageTheme.textMuted, fontSize: 12),
+                        ),
+                      ),
+                    const SizedBox(height: 4),
                     Expanded(
                       child: spotifyResults.isEmpty
-                          ? const Center(
+                          ? Center(
                               child: Text(
-                                "Busca un tema para escuchar el preview de 30s y proponerlo",
-                                style: TextStyle(color: StageTheme.textMuted),
+                                searchedOnce
+                                    ? "Sin resultados para \"${searchCtrl.text.trim()}\""
+                                    : "Busca un grupo, selecciona varias canciones y añádelas de una vez",
+                                style: const TextStyle(color: StageTheme.textMuted),
                                 textAlign: TextAlign.center,
                               ),
                             )
                           : ListView.builder(
-                              itemCount: spotifyResults.length,
+                              itemCount: spotifyResults.length + 1,
                               itemBuilder: (ctx, index) {
+                                if (index == spotifyResults.length) {
+                                  return Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 6),
+                                    child: Center(
+                                      child: hasMore
+                                          ? TextButton.icon(
+                                              onPressed: loadingMore ? null : loadMore,
+                                              icon: loadingMore
+                                                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                                  : const Icon(Icons.expand_more, size: 20),
+                                              label: Text(
+                                                loadingMore ? "Buscando más..." : "Más resultados de \"$lastQuery\"",
+                                                style: const TextStyle(fontSize: 13),
+                                              ),
+                                            )
+                                          : const Text(
+                                              "No hay más resultados",
+                                              style: TextStyle(color: StageTheme.textMuted, fontSize: 12),
+                                            ),
+                                    ),
+                                  );
+                                }
+
                                 final track = spotifyResults[index];
                                 final isPlaying = playingUrl == track["preview_url"];
+                                final isSelected = selected.contains(index);
+
+                                void toggle() {
+                                  setModalState(() {
+                                    if (isSelected) {
+                                      selected.remove(index);
+                                    } else {
+                                      selected.add(index);
+                                    }
+                                  });
+                                }
 
                                 return ListTile(
+                                  onTap: toggle,
+                                  selected: isSelected,
+                                  selectedTileColor: StageTheme.flameOrange.withValues(alpha: 0.10),
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                                   leading: ClipRRect(
                                     borderRadius: BorderRadius.circular(6),
                                     child: track["cover_url"] != null
@@ -1742,7 +1865,7 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       IconButton(
-                                        iconSize: 36,
+                                        iconSize: 30,
                                         icon: Icon(
                                           isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill,
                                           color: track["preview_url"] != null ? StageTheme.flameOrange : StageTheme.textMuted,
@@ -1750,28 +1873,38 @@ class _RepertoireScreenState extends State<RepertoireScreen> {
                                         tooltip: "Escuchar preview de 30s",
                                         onPressed: () => toggleDialogPreview(track["preview_url"] as String?),
                                       ),
-                                      const SizedBox(width: 4),
-                                      ElevatedButton(
-                                        child: const Text("Añadir"),
-                                        onPressed: () async {
-                                          await dialogPlayer.stop();
-                                          await _api.createSongProposal(
-                                            title: track["title"],
-                                            artist: track["artist"],
-                                            album: track["album"],
-                                            coverUrl: track["cover_url"],
-                                            previewUrl: track["preview_url"],
-                                            spotifyId: track["spotify_id"],
-                                          );
-                                          Navigator.pop(ctx);
-                                          _loadSongs(silent: true);
-                                        },
+                                      Checkbox(
+                                        value: isSelected,
+                                        activeColor: StageTheme.flameOrange,
+                                        onChanged: (_) => toggle(),
                                       ),
                                     ],
                                   ),
                                 );
                               },
                             ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: ElevatedButton.icon(
+                        icon: adding
+                            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                            : const Icon(Icons.playlist_add, size: 20),
+                        label: Text(
+                          selected.isEmpty
+                              ? "Selecciona temas para añadir"
+                              : "Añadir ${selected.length} tema${selected.length == 1 ? "" : "s"}",
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: StageTheme.flameOrange,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onPressed: selected.isEmpty || adding ? null : addSelected,
+                      ),
                     ),
                   ],
                 ),

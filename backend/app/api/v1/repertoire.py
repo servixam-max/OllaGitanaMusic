@@ -82,12 +82,17 @@ async def cache_preview_task(song_id: int, spotify_id: Optional[str], title: str
             print(f"[Repertoire] Error cacheando preview para {song_id}: {e}")
 
 @router.get("/spotify/search")
-async def search_spotify(query: str = Query(..., description="Búsqueda en catálogo de Spotify/Deezer/iTunes")):
+async def search_spotify(
+    query: str = Query(..., description="Búsqueda en catálogo de Spotify/Deezer/iTunes"),
+    limit: int = Query(15, ge=1, le=100, description="Resultados por página"),
+    offset: int = Query(0, ge=0, description="Desplazamiento para paginar"),
+):
     """
     Busca temas para autocompletar carátula y reproducir preview de 30s.
+    Con offset se pueden pedir más resultados del mismo grupo ("Más resultados").
     """
-    results = await SpotifyService.search_tracks(query)
-    return {"results": results, "count": len(results)}
+    results = await SpotifyService.search_tracks(query, limit=limit, offset=offset)
+    return {"results": results, "count": len(results), "limit": limit, "offset": offset}
 
 @router.get("/songs")
 async def get_songs(

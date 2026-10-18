@@ -83,18 +83,19 @@ class SpotifyService:
         )
 
     @classmethod
-    async def search_tracks(cls, query: str, limit: int = 15) -> List[Dict[str, Any]]:
+    async def search_tracks(cls, query: str, limit: int = 15, offset: int = 0) -> List[Dict[str, Any]]:
         # 1. Intentar Spotify si hay credenciales
         token = await cls._get_spotify_token()
         if token:
-            spotify_results = await cls._search_spotify(query, token, limit)
+            spotify_results = await cls._search_spotify(query, token, limit, offset)
             if spotify_results:
                 return spotify_results
 
         # 2. Deezer API (pública, sin keys, carátulas HD y previews de 30s en MP3)
         #    + iTunes como complemento, unificados sin duplicados entre proveedores
-        deezer_results = await cls._search_deezer(query, limit)
-        itunes_results = await cls._search_itunes(query, limit)
+        #    offset permite paginar ("Más resultados" de un mismo grupo).
+        deezer_results = await cls._search_deezer(query, limit, offset)
+        itunes_results = await cls._search_itunes(query, limit, offset)
 
         merged = cls._merge_unique(deezer_results, itunes_results)
         if merged:
@@ -103,9 +104,9 @@ class SpotifyService:
         return itunes_results
 
     @classmethod
-    async def _search_spotify(cls, query: str, token: str, limit: int) -> List[Dict[str, Any]]:
+    async def _search_spotify(cls, query: str, token: str, limit: int, offset: int = 0) -> List[Dict[str, Any]]:
         headers = {"Authorization": f"Bearer {token}"}
-        params = {"q": query, "type": "track", "limit": limit}
+        params = {"q": query, "type": "track", "limit": limit, "offset": offset}
 
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:
@@ -133,9 +134,9 @@ class SpotifyService:
         return []
 
     @classmethod
-    async def _search_deezer(cls, query: str, limit: int) -> List[Dict[str, Any]]:
+    async def _search_deezer(cls, query: str, limit: int, offset: int = 0) -> List[Dict[str, Any]]:
         url = "https://api.deezer.com/search"
-        params = {"q": query, "limit": limit}
+        params = {"q": query, "limit": limit, "index": offset}
 
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:
@@ -162,9 +163,11 @@ class SpotifyService:
         return []
 
     @classmethod
-    async def _search_itunes(cls, query: str, limit: int) -> List[Dict[str, Any]]:
+    async def _search_itunes(cls, query: str, limit: int, offset: int = 0) -> List[Dict[str, Any]]:
+        # iTunes Search API no admite offset: se pide de más y se recorta.
+        fetch_limit = min(limit + offset, 200)
         url = "https://itunes.apple.com/search"
-        params = {"term": query, "entity": "song", "limit": limit}
+        params = {"term": query, "entity": "song", "limit": fetch_limit}
 
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:
@@ -187,7 +190,7 @@ class SpotifyService:
                             "duration_ms": item.get("trackTimeMillis", 0),
                             "source": "iTunes"
                         })
-                    return results
+                    return results[offset: offset + limit]
             except Exception as e:
                 print(f"[MusicService] Error buscando en iTunes: {e}")
         return []

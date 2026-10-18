@@ -15,6 +15,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
 
+    <!-- Visibilidad del paquete de la app de Songsterr (Android 11+) -->
+    <queries>
+        <package android:name="com.songsterr" />
+    </queries>
+
     <application
         android:label="Olla Gitana"
         android:name="${applicationName}"
