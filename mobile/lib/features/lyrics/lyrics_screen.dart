@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderAbstractViewport;
 import '../../core/network/api_client.dart';
 import '../../core/theme/stage_theme.dart';
 import '../../core/widgets/profile_app_bar_button.dart';
@@ -28,17 +29,20 @@ class _LyricsScreenState extends State<LyricsScreen> {
   // Controles de escenario
   double _fontSize = 20.0;
   bool _isAutoScrolling = false;
-  double _scrollSpeed = 1.0; // Velocidad manual (fallback si no hay letra sincronizada)
+  double _scrollSpeed =
+      1.0; // Velocidad manual (fallback si no hay letra sincronizada)
   Timer? _scrollTimer;
 
   // Modo karaoke sincronizado (usa los tiempos LRC)
   Timer? _karaokeTimer;
   Stopwatch? _karaokeClock;
   int _activeLineIndex = -1;
-  int _karaokeOffsetMs = 0; // Ajuste fino de sincronía (+ = la letra va más lenta)
+  int _karaokeOffsetMs =
+      0; // Ajuste fino de sincronía (+ = la letra va más lenta)
   final Map<int, GlobalKey> _lineKeys = {};
 
-  List<dynamic> get _syncedLines => (_currentLyrics?["lines"] as List<dynamic>?) ?? [];
+  List<dynamic> get _syncedLines =>
+      (_currentLyrics?["lines"] as List<dynamic>?) ?? [];
 
   bool get _hasSyncedLyrics => _syncedLines.isNotEmpty;
 
@@ -73,7 +77,8 @@ class _LyricsScreenState extends State<LyricsScreen> {
       }
       return;
     }
-    _debounceTimer = Timer(const Duration(milliseconds: 500), () => _searchLyrics(silent: true));
+    _debounceTimer = Timer(
+        const Duration(milliseconds: 500), () => _searchLyrics(silent: true));
   }
 
   Future<void> _loadCached() async {
@@ -118,7 +123,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
     final artistName = song["artist_name"] as String? ?? "";
 
     setState(() {
-      _currentLyrics = song;
+      _currentLyrics = _sanitizeLyrics(song);
       _searchResults = [];
       _showCached = false;
       _searchError = null;
@@ -135,9 +140,12 @@ class _LyricsScreenState extends State<LyricsScreen> {
       // Refuerzo: pedir la versión exacta sincronizada
       final better = await _api.getLyrics(trackName, artistName);
       if (better != null) {
-        final betterLines = (better["lines"] as List<dynamic>?)?.isNotEmpty == true;
-        final currentPlain = (song["plain_lyrics"] as String?)?.isNotEmpty == true;
-        final betterPlain = (better["plain_lyrics"] as String?)?.isNotEmpty == true;
+        final betterLines =
+            (better["lines"] as List<dynamic>?)?.isNotEmpty == true;
+        final currentPlain =
+            (song["plain_lyrics"] as String?)?.isNotEmpty == true;
+        final betterPlain =
+            (better["plain_lyrics"] as String?)?.isNotEmpty == true;
         if (betterLines || (!currentPlain && betterPlain)) {
           finalSong = better;
         }
@@ -146,12 +154,26 @@ class _LyricsScreenState extends State<LyricsScreen> {
 
     if (!mounted) return;
     setState(() {
-      _currentLyrics = finalSong;
+      _currentLyrics = _sanitizeLyrics(finalSong);
       _isLoadingLyrics = false;
     });
 
-    _api.cacheLyrics(finalSong);
+    _api.cacheLyrics(_sanitizeLyrics(finalSong));
     _loadCached();
+  }
+
+  /// Quita de la lista de líneas las marcas LRC sin texto (el cierre
+  /// `[03:06.99]` que traen muchas letras): si se dejan, el karaoke resalta un
+  /// recuadro vacío al final y añade un salto de scroll que no aporta nada.
+  static Map<String, dynamic> _sanitizeLyrics(Map<String, dynamic> song) {
+    final lines = song["lines"];
+    if (lines is! List) return song;
+    final clean = lines
+        .whereType<Map>()
+        .where((line) => (line["text"] as String? ?? "").trim().isNotEmpty)
+        .toList();
+    if (clean.length == lines.length) return song;
+    return {...song, "lines": clean};
   }
 
   /// Vuelve atrás a la lista de búsqueda/guardadas
@@ -183,7 +205,8 @@ class _LyricsScreenState extends State<LyricsScreen> {
     if (!_hasSyncedLyrics) return;
     _karaokeClock = Stopwatch()..start();
     _karaokeTimer = Timer.periodic(const Duration(milliseconds: 120), (_) {
-      final elapsedMs = (_karaokeClock?.elapsedMilliseconds ?? 0) - _karaokeOffsetMs;
+      final elapsedMs =
+          (_karaokeClock?.elapsedMilliseconds ?? 0) - _karaokeOffsetMs;
       int newIndex = -1;
       final lines = _syncedLines;
       for (int i = 0; i < lines.length; i++) {
@@ -220,7 +243,8 @@ class _LyricsScreenState extends State<LyricsScreen> {
     _stopKaraoke();
     setState(() => _activeLineIndex = -1);
     if (_scrollController.hasClients) {
-      _scrollController.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+      _scrollController.animateTo(0,
+          duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
     }
     _startKaraoke();
     if (mounted) setState(() {});
@@ -237,21 +261,17 @@ class _LyricsScreenState extends State<LyricsScreen> {
 
   void _scrollToLine(int index) {
     if (index < 0) return;
-    final key = _lineKeys[index];
-    final ctx = key?.currentContext;
+    final ctx = _lineKeys[index]?.currentContext;
     if (ctx == null || !_scrollController.hasClients) return;
-    final box = ctx.findRenderObject() as RenderBox?;
-    if (box == null) return;
-    try {
-      final position = box.localToGlobal(Offset.zero, ancestor: ctx.findAncestorRenderObjectOfType<RenderBox>());
-      final viewport = _scrollController.position.viewportDimension;
-      final target = _scrollController.offset + position.dy - viewport * 0.35;
-      _scrollController.animateTo(
-        target.clamp(0.0, _scrollController.position.maxScrollExtent),
-        duration: const Duration(milliseconds: 350),
-        curve: Curves.easeOut,
-      );
-    } catch (_) {}
+    final target = karaokeRevealOffset(_scrollController, ctx);
+    // Si la línea ya está casi donde debe, no relanzar la animación (evita
+    // tirones cuando dos líneas caen muy seguidas).
+    if ((target - _scrollController.offset).abs() < 4) return;
+    _scrollController.animateTo(
+      target.clamp(0.0, _scrollController.position.maxScrollExtent),
+      duration: const Duration(milliseconds: 420),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   // --- Auto-scroll manual por velocidad (para letras sin sincronizar) ---
@@ -304,14 +324,18 @@ class _LyricsScreenState extends State<LyricsScreen> {
           side: const BorderSide(color: StageTheme.border),
         ),
         title: const Text("Quitar letra guardada"),
-        content: Text("¿Quieres quitar \"$title\" de tus letras guardadas?\n\nPodrás volver a buscarla y guardarla de nuevo cuando quieras."),
+        content: Text(
+            "¿Quieres quitar \"$title\" de tus letras guardadas?\n\nPodrás volver a buscarla y guardarla de nuevo cuando quieras."),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text("Cancelar", style: TextStyle(color: StageTheme.textSecondary)),
+            child: const Text("Cancelar",
+                style: TextStyle(color: StageTheme.textSecondary)),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: StageTheme.alertRed, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: StageTheme.alertRed,
+                foregroundColor: Colors.white),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text("Quitar"),
           ),
@@ -377,9 +401,13 @@ class _LyricsScreenState extends State<LyricsScreen> {
                 IconButton(
                   icon: Icon(
                     Icons.mic,
-                    color: _karaokeTimer != null ? StageTheme.electricGreen : StageTheme.textSecondary,
+                    color: _karaokeTimer != null
+                        ? StageTheme.electricGreen
+                        : StageTheme.textSecondary,
                   ),
-                  tooltip: _karaokeTimer != null ? "Detener karaoke" : "Modo Karaoke sincronizado",
+                  tooltip: _karaokeTimer != null
+                      ? "Detener karaoke"
+                      : "Modo Karaoke sincronizado",
                   onPressed: _toggleKaraoke,
                 ),
                 IconButton(
@@ -392,23 +420,38 @@ class _LyricsScreenState extends State<LyricsScreen> {
                   icon: const Icon(Icons.tune, color: StageTheme.amberGold),
                   onSelected: _adjustSync,
                   itemBuilder: (ctx) => [
-                    const PopupMenuItem(value: -2000, child: Text("La letra va muy adelantada (-2 s)")),
-                    const PopupMenuItem(value: -1000, child: Text("Adelantar 1 s")),
-                    const PopupMenuItem(value: -500, child: Text("Adelantar 0,5 s")),
-                    const PopupMenuItem(value: 0, child: Text("Sincronía original")),
-                    const PopupMenuItem(value: 500, child: Text("Atrasar 0,5 s")),
-                    const PopupMenuItem(value: 1000, child: Text("Atrasar 1 s")),
-                    const PopupMenuItem(value: 2000, child: Text("La letra va muy atrasada (+2 s)")),
+                    const PopupMenuItem(
+                        value: -2000,
+                        child: Text("La letra va muy adelantada (-2 s)")),
+                    const PopupMenuItem(
+                        value: -1000, child: Text("Adelantar 1 s")),
+                    const PopupMenuItem(
+                        value: -500, child: Text("Adelantar 0,5 s")),
+                    const PopupMenuItem(
+                        value: 0, child: Text("Sincronía original")),
+                    const PopupMenuItem(
+                        value: 500, child: Text("Atrasar 0,5 s")),
+                    const PopupMenuItem(
+                        value: 1000, child: Text("Atrasar 1 s")),
+                    const PopupMenuItem(
+                        value: 2000,
+                        child: Text("La letra va muy atrasada (+2 s)")),
                   ],
                 ),
               ] else
                 IconButton(
                   icon: Icon(
-                    _isAutoScrolling ? Icons.pause_circle_filled : Icons.play_circle_fill,
-                    color: _isAutoScrolling ? StageTheme.electricGreen : StageTheme.amberGold,
+                    _isAutoScrolling
+                        ? Icons.pause_circle_filled
+                        : Icons.play_circle_fill,
+                    color: _isAutoScrolling
+                        ? StageTheme.electricGreen
+                        : StageTheme.amberGold,
                     size: 32,
                   ),
-                  tooltip: _isAutoScrolling ? "Pausar Scroll" : "Iniciar Scroll Automático",
+                  tooltip: _isAutoScrolling
+                      ? "Pausar Scroll"
+                      : "Iniciar Scroll Automático",
                   onPressed: _toggleAutoScroll,
                 ),
             ],
@@ -429,10 +472,12 @@ class _LyricsScreenState extends State<LyricsScreen> {
                         hintText: "Buscar canción o artista...",
                         filled: true,
                         fillColor: StageTheme.surfaceElevated,
-                        prefixIcon: const Icon(Icons.search, color: StageTheme.flameOrange),
+                        prefixIcon: const Icon(Icons.search,
+                            color: StageTheme.flameOrange),
                         suffixIcon: _searchController.text.isNotEmpty
                             ? IconButton(
-                                icon: const Icon(Icons.clear, size: 18, color: StageTheme.textMuted),
+                                icon: const Icon(Icons.clear,
+                                    size: 18, color: StageTheme.textMuted),
                                 tooltip: "Limpiar búsqueda",
                                 onPressed: () {
                                   _searchController.clear();
@@ -458,7 +503,8 @@ class _LyricsScreenState extends State<LyricsScreen> {
                         ? const SizedBox(
                             width: 20,
                             height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white),
                           )
                         : const Text("Buscar"),
                   ),
@@ -473,12 +519,18 @@ class _LyricsScreenState extends State<LyricsScreen> {
                 child: Row(
                   children: [
                     TextButton.icon(
-                      icon: Icon(_showCached ? Icons.expand_less : Icons.download_done, size: 18),
+                      icon: Icon(
+                          _showCached ? Icons.expand_less : Icons.download_done,
+                          size: 18),
                       label: Text(
-                        _showCached ? "Ocultar guardadas" : "Letras guardadas (${_cachedSongs.length})",
+                        _showCached
+                            ? "Ocultar guardadas"
+                            : "Letras guardadas (${_cachedSongs.length})",
                       ),
-                      style: TextButton.styleFrom(foregroundColor: StageTheme.amberGold),
-                      onPressed: () => setState(() => _showCached = !_showCached),
+                      style: TextButton.styleFrom(
+                          foregroundColor: StageTheme.amberGold),
+                      onPressed: () =>
+                          setState(() => _showCached = !_showCached),
                     ),
                   ],
                 ),
@@ -487,13 +539,16 @@ class _LyricsScreenState extends State<LyricsScreen> {
             // Control de velocidad de scroll si está activo (manual)
             if (_currentLyrics != null && _isAutoScrolling)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                 color: StageTheme.surfaceElevated,
                 child: Row(
                   children: [
-                    const Icon(Icons.speed, color: StageTheme.amberGold, size: 20),
+                    const Icon(Icons.speed,
+                        color: StageTheme.amberGold, size: 20),
                     const SizedBox(width: 8),
-                    const Text("Velocidad Scroll:", style: TextStyle(color: StageTheme.textSecondary)),
+                    const Text("Velocidad Scroll:",
+                        style: TextStyle(color: StageTheme.textSecondary)),
                     Expanded(
                       child: Slider(
                         value: _scrollSpeed,
@@ -514,18 +569,23 @@ class _LyricsScreenState extends State<LyricsScreen> {
             // Aviso de modo karaoke activo
             if (_currentLyrics != null && _karaokeTimer != null)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                 color: StageTheme.electricGreen.withValues(alpha: 0.12),
                 child: Row(
                   children: [
-                    const Icon(Icons.mic, color: StageTheme.electricGreen, size: 18),
+                    const Icon(Icons.mic,
+                        color: StageTheme.electricGreen, size: 18),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         _karaokeOffsetMs == 0
                             ? "Karaoke sincronizado activo — la línea actual se resalta sola"
                             : "Karaoke activo · ajuste de sincronía: ${_karaokeOffsetMs > 0 ? '+' : ''}${_karaokeOffsetMs}ms",
-                        style: const TextStyle(color: StageTheme.electricGreen, fontSize: 12, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                            color: StageTheme.electricGreen,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold),
                       ),
                     ),
                   ],
@@ -539,28 +599,40 @@ class _LyricsScreenState extends State<LyricsScreen> {
                       itemCount: _searchResults.length,
                       itemBuilder: (context, index) {
                         final item = _searchResults[index];
-                        final hasSynced = (item["lines"] as List<dynamic>?)?.isNotEmpty == true ||
-                            item["has_synced"] == true;
+                        final hasSynced =
+                            (item["lines"] as List<dynamic>?)?.isNotEmpty ==
+                                    true ||
+                                item["has_synced"] == true;
                         return ListTile(
                           leading: Icon(
                             hasSynced ? Icons.mic : Icons.music_note,
-                            color: hasSynced ? StageTheme.electricGreen : StageTheme.flameOrange,
+                            color: hasSynced
+                                ? StageTheme.electricGreen
+                                : StageTheme.flameOrange,
                           ),
                           title: Text(item["track_name"] ?? "Sin título",
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 16)),
                           subtitle: Row(
                             children: [
                               Expanded(
-                                child: Text(item["artist_name"] ?? "Artista desconocido",
-                                    style: const TextStyle(color: StageTheme.textSecondary),
+                                child: Text(
+                                    item["artist_name"] ??
+                                        "Artista desconocido",
+                                    style: const TextStyle(
+                                        color: StageTheme.textSecondary),
                                     overflow: TextOverflow.ellipsis),
                               ),
                               if (hasSynced)
                                 const Text("Karaoke",
-                                    style: TextStyle(color: StageTheme.electricGreen, fontSize: 11, fontWeight: FontWeight.bold)),
+                                    style: TextStyle(
+                                        color: StageTheme.electricGreen,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold)),
                             ],
                           ),
-                          trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: StageTheme.textMuted),
+                          trailing: const Icon(Icons.arrow_forward_ios,
+                              size: 16, color: StageTheme.textMuted),
                           onTap: () => _selectSong(item),
                         );
                       },
@@ -570,18 +642,25 @@ class _LyricsScreenState extends State<LyricsScreen> {
                           itemCount: _cachedSongs.length,
                           itemBuilder: (context, index) {
                             final item = _cachedSongs[index];
-                            final hasSynced = (item["lines"] as List<dynamic>?)?.isNotEmpty == true;
+                            final hasSynced =
+                                (item["lines"] as List<dynamic>?)?.isNotEmpty ==
+                                    true;
                             return ListTile(
                               leading: Icon(
                                 hasSynced ? Icons.mic : Icons.download_done,
-                                color: hasSynced ? StageTheme.electricGreen : StageTheme.textSecondary,
+                                color: hasSynced
+                                    ? StageTheme.electricGreen
+                                    : StageTheme.textSecondary,
                               ),
                               title: Text(item["track_name"] ?? "Sin título",
-                                  style: const TextStyle(fontWeight: FontWeight.bold)),
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.bold)),
                               subtitle: Text(item["artist_name"] ?? "",
-                                  style: const TextStyle(color: StageTheme.textSecondary)),
+                                  style: const TextStyle(
+                                      color: StageTheme.textSecondary)),
                               trailing: IconButton(
-                                icon: const Icon(Icons.delete_outline, size: 20, color: StageTheme.alertRed),
+                                icon: const Icon(Icons.delete_outline,
+                                    size: 20, color: StageTheme.alertRed),
                                 tooltip: "Quitar de guardadas",
                                 onPressed: () => _confirmDeleteCached(item),
                               ),
@@ -595,10 +674,13 @@ class _LyricsScreenState extends State<LyricsScreen> {
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      CircularProgressIndicator(color: StageTheme.flameOrange),
+                                      CircularProgressIndicator(
+                                          color: StageTheme.flameOrange),
                                       SizedBox(height: 12),
                                       Text("Buscando la letra sincronizada...",
-                                          style: TextStyle(color: StageTheme.textSecondary, fontSize: 13)),
+                                          style: TextStyle(
+                                              color: StageTheme.textSecondary,
+                                              fontSize: 13)),
                                     ],
                                   ),
                                 )
@@ -608,14 +690,18 @@ class _LyricsScreenState extends State<LyricsScreen> {
                                   child: Padding(
                                     padding: const EdgeInsets.all(32),
                                     child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
                                       children: [
-                                        const Icon(Icons.search_off, size: 48, color: StageTheme.textMuted),
+                                        const Icon(Icons.search_off,
+                                            size: 48,
+                                            color: StageTheme.textMuted),
                                         const SizedBox(height: 12),
                                         Text(
                                           _searchError!,
                                           textAlign: TextAlign.center,
-                                          style: const TextStyle(color: StageTheme.textSecondary),
+                                          style: const TextStyle(
+                                              color: StageTheme.textSecondary),
                                         ),
                                       ],
                                     ),
@@ -625,19 +711,26 @@ class _LyricsScreenState extends State<LyricsScreen> {
                                   child: Padding(
                                     padding: EdgeInsets.all(32),
                                     child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
                                       children: [
-                                        Icon(Icons.mic_none, size: 64, color: StageTheme.textMuted),
+                                        Icon(Icons.mic_none,
+                                            size: 64,
+                                            color: StageTheme.textMuted),
                                         SizedBox(height: 16),
                                         Text(
                                           "Busca una canción para ensayar la letra",
-                                          style: TextStyle(color: StageTheme.textSecondary, fontSize: 16),
+                                          style: TextStyle(
+                                              color: StageTheme.textSecondary,
+                                              fontSize: 16),
                                         ),
                                         SizedBox(height: 8),
                                         Text(
                                           "Las canciones con el icono 🎤 incluyen letra sincronizada (karaoke).",
                                           textAlign: TextAlign.center,
-                                          style: TextStyle(color: StageTheme.textMuted, fontSize: 12),
+                                          style: TextStyle(
+                                              color: StageTheme.textMuted,
+                                              fontSize: 12),
                                         ),
                                       ],
                                     ),
@@ -656,176 +749,239 @@ class _LyricsScreenState extends State<LyricsScreen> {
     final plainLyrics = _currentLyrics!["plain_lyrics"] as String?;
     final lines = _syncedLines;
 
-    return SingleChildScrollView(
-      controller: _scrollController,
-      physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Tarjeta Header de Canción con degradado
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              gradient: StageTheme.cardGradient,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: StageTheme.border),
-              boxShadow: [
-                BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 2)),
-              ],
-            ),
-            child: Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        gradient: StageTheme.flameGradient,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.mic_rounded, size: 16, color: Colors.white),
-                    ),
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: Text(
-                        trackName,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                          letterSpacing: -0.3,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Colchón inferior: sin él, las últimas ~15 líneas no pueden subir
+        // hasta el 35 % de la pantalla y el resaltado se queda pegado al borde
+        // inferior. Con este aire el scroll termina justo cuando la última
+        // línea llega a la posición de lectura, sin pasarse.
+        final bottomTail = lines.isEmpty
+            ? 80.0
+            : ((constraints.maxHeight - 50) * 0.65).clamp(80.0, 900.0);
+
+        return SingleChildScrollView(
+          controller: _scrollController,
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Tarjeta Header de Canción con degradado
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  gradient: StageTheme.cardGradient,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: StageTheme.border),
+                  boxShadow: [
+                    BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2)),
                   ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  artistName,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 14, color: StageTheme.textSecondary, fontWeight: FontWeight.w500),
-                ),
-                if (_hasSyncedLyrics) ...[
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: StageTheme.electricGreen.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: StageTheme.electricGreen.withValues(alpha: 0.4)),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            gradient: StageTheme.flameGradient,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.mic_rounded,
+                              size: 16, color: Colors.white),
+                        ),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            trackName,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                              letterSpacing: -0.3,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
-                    child: const Text(
-                      "KARAOKE SINCRONIZADO LRC",
-                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: StageTheme.electricGreen, letterSpacing: 0.5),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-
-          // Letra sincronizada o texto plano
-          if (lines.isNotEmpty)
-            ...lines.asMap().entries.map((entry) {
-              final index = entry.key;
-              final line = entry.value;
-              final isActive = index == _activeLineIndex;
-              _lineKeys.putIfAbsent(index, () => GlobalKey());
-
-              return Padding(
-                key: _lineKeys[index],
-                padding: const EdgeInsets.symmetric(vertical: 4.0),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 250),
-                  curve: Curves.easeOutCubic,
-                  padding: EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: isActive ? 10 : 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isActive
-                        ? StageTheme.flameOrange.withValues(alpha: 0.20)
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: isActive ? StageTheme.flameOrange.withValues(alpha: 0.7) : Colors.transparent,
-                      width: 1.2,
-                    ),
-                    boxShadow: isActive ? StageTheme.glowOrange : null,
-                  ),
-                  child: AnimatedDefaultTextStyle(
-                    duration: const Duration(milliseconds: 200),
-                    style: TextStyle(
-                      fontSize: _fontSize * (isActive ? 1.15 : 1.0),
-                      height: 1.5,
-                      color: _karaokeTimer != null
-                          ? (isActive ? Colors.white : StageTheme.textMuted.withValues(alpha: 0.6))
-                          : StageTheme.textPrimary,
-                      fontWeight: isActive ? FontWeight.w800 : FontWeight.w500,
-                      letterSpacing: isActive ? 0.3 : 0,
-                    ),
-                    child: Text(
-                      line["text"] ?? "",
+                    const SizedBox(height: 4),
+                    Text(
+                      artistName,
                       textAlign: TextAlign.center,
+                      style: const TextStyle(
+                          fontSize: 14,
+                          color: StageTheme.textSecondary,
+                          fontWeight: FontWeight.w500),
+                    ),
+                    if (_hasSyncedLyrics) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color:
+                              StageTheme.electricGreen.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                              color: StageTheme.electricGreen
+                                  .withValues(alpha: 0.4)),
+                        ),
+                        child: const Text(
+                          "KARAOKE SINCRONIZADO LRC",
+                          style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: StageTheme.electricGreen,
+                              letterSpacing: 0.5),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Letra sincronizada o texto plano
+              if (lines.isNotEmpty)
+                ...lines.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final line = entry.value;
+                  final isActive = index == _activeLineIndex;
+                  _lineKeys.putIfAbsent(index, () => GlobalKey());
+
+                  return Padding(
+                    key: _lineKeys[index],
+                    padding: const EdgeInsets.symmetric(vertical: 4.0),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 250),
+                      curve: Curves.easeOutCubic,
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: isActive ? 10 : 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isActive
+                            ? StageTheme.flameOrange.withValues(alpha: 0.20)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: isActive
+                              ? StageTheme.flameOrange.withValues(alpha: 0.7)
+                              : Colors.transparent,
+                          width: 1.2,
+                        ),
+                        boxShadow: isActive ? StageTheme.glowOrange : null,
+                      ),
+                      child: AnimatedDefaultTextStyle(
+                        duration: const Duration(milliseconds: 200),
+                        style: TextStyle(
+                          fontSize: _fontSize * (isActive ? 1.15 : 1.0),
+                          height: 1.5,
+                          color: _karaokeTimer != null
+                              ? (isActive
+                                  ? Colors.white
+                                  : StageTheme.textMuted.withValues(alpha: 0.6))
+                              : StageTheme.textPrimary,
+                          fontWeight:
+                              isActive ? FontWeight.w800 : FontWeight.w500,
+                          letterSpacing: isActive ? 0.3 : 0,
+                        ),
+                        child: Text(
+                          line["text"] ?? "",
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                  );
+                })
+              else if (plainLyrics != null && plainLyrics.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: StageTheme.surfaceElevated,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: StageTheme.border),
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: StageTheme.amberGold.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Text(
+                          "LETRA SIN SINCRONIZAR — usa el auto-scroll manual",
+                          style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: StageTheme.amberGold),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        plainLyrics,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: _fontSize,
+                          height: 1.7,
+                          color: StageTheme.textPrimary,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(32.0),
+                    child: Text(
+                      "No hay letra disponible para esta canción.",
+                      style:
+                          TextStyle(color: StageTheme.textMuted, fontSize: 16),
                     ),
                   ),
                 ),
-              );
-            })
-          else if (plainLyrics != null && plainLyrics.isNotEmpty)
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: StageTheme.surfaceElevated,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: StageTheme.border),
-              ),
-              child: Column(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: StageTheme.amberGold.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Text(
-                      "LETRA SIN SINCRONIZAR — usa el auto-scroll manual",
-                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: StageTheme.amberGold),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    plainLyrics,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: _fontSize,
-                      height: 1.7,
-                      color: StageTheme.textPrimary,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            )
-          else
-            const Center(
-              child: Padding(
-                padding: EdgeInsets.all(32.0),
-                child: Text(
-                  "No hay letra disponible para esta canción.",
-                  style: TextStyle(color: StageTheme.textMuted, fontSize: 16),
-                ),
-              ),
-            ),
-          const SizedBox(height: 80),
-        ],
-      ),
+              SizedBox(height: bottomTail),
+            ],
+          ),
+        );
+      },
     );
   }
+}
+
+/// Offset de scroll que deja la línea de [lineContext] al [alignment] del alto
+/// visible (0.0 = borde superior, 1.0 = borde inferior), medido en coordenadas
+/// de contenido (no de pantalla).
+///
+/// No usar `localToGlobal` + `_scrollController.offset` para esto: la posición
+/// del widget ya incluye el desplazamiento actual, así que volver a sumarlo
+/// acumula error en cada línea y el karaoke termina saltando al final de la
+/// letra (`maxScrollExtent`), que es el bug que reportaba el móvil.
+@visibleForTesting
+double karaokeRevealOffset(
+  ScrollController controller,
+  BuildContext lineContext, {
+  double alignment = 0.35,
+}) {
+  final box = lineContext.findRenderObject();
+  if (box is! RenderBox || !box.attached) {
+    return controller.hasClients ? controller.offset : 0.0;
+  }
+  final viewport = RenderAbstractViewport.maybeOf(box);
+  if (viewport == null) {
+    return controller.hasClients ? controller.offset : 0.0;
+  }
+  return viewport.getOffsetToReveal(box, alignment).offset;
 }

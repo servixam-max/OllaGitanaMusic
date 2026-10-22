@@ -55,6 +55,12 @@ class LyricsService:
             # El texto es lo que queda tras la última marca de tiempo
             text = line[marks[-1].end():].strip()
 
+            # Muchos LRC cierran con una marca de tiempo sin texto (o con líneas
+            # en blanco para silencios). No son versos: si se devuelven, el
+            # karaoke resalta un recuadro vacío al final de la canción.
+            if not text:
+                continue
+
             for mark in marks:
                 minutes = int(mark.group(1))
                 seconds = int(mark.group(2))
